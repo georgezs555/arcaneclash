@@ -1,0 +1,210 @@
+ArcaneClash — Card Art Descriptions
+====================================
+
+Save each generated image into packages/client/src/art/ using the EXACT
+filename shown (png, jpg, or webp all work). Restart "npm run dev" after
+adding files. Cards without an image keep the placeholder art.
+
+Format: portrait orientation, roughly 3:4 (e.g. 768x1024), subject centered,
+no text in the image.
+
+Append this style suffix to every prompt for a coherent set:
+anime style, vibrant cel-shaded digital illustration, dramatic fantasy
+lighting, painterly background, trading card game art, portrait composition,
+no text, no watermark
+
+
+NEUTRAL MINIONS
+---------------
+
+river_skulker.png
+A small nimble lizardfolk rogue crouching low in shallow river reeds at dawn,
+dagger drawn, mischievous grin
+
+stonehide_guard.png
+A squat granite-skinned golem soldier planting a heavy round shield into the
+ground, immovable stance, protective aura
+
+hedge_scholar.png
+A young hedge-wizard apprentice excitedly pulling a glowing book from a
+satchel, scrolls tumbling out, warm library light
+
+sparkfist_brawler.png
+A wiry street fighter mid-dash with lightning crackling around clenched
+fists, motion blur behind, eager expression
+
+gravemoss_shambler.png
+A moss-covered shambling corpse-golem with a tiny fiery spirit glowing inside
+its ribcage, waiting to escape
+
+duskwing_harrier.png
+A sleek twilight falcon-woman with twin wing blades, diving twice in one
+motion, double afterimage
+
+sunforged_acolyte.png
+A serene monk in gilded armor surrounded by a shimmering golden bubble of
+holy light
+
+boulderfang_alpha.png
+A massive bear-sized wolf with stone spikes along its back standing on a
+cliff, pack leader posture, imposing bulk
+
+warden_of_the_gate.png
+A towering armored sentinel blocking a fortress gate with a massive halberd,
+torchlight, "none shall pass" stance
+
+stormcaller_veda.png
+A fierce sorceress with wind-whipped hair calling a lightning bolt down from
+a swirling storm onto a target below
+
+ridge_charger.png
+An armored elk-mount thundering downhill at full gallop, dust and rocks
+flying, lowered antlers
+
+aegis_colossus.png
+A colossal ancient guardian statue awakening, golden barrier shimmering
+across its stone body, low camera angle
+
+
+NEUTRAL SPELLS
+--------------
+
+ember_bolt.png
+A streaking bolt of orange flame fired from a fingertip across a dark
+battlefield, sparks trailing
+
+mend_flesh.png
+Soft green-gold healing light knitting a warrior's wound closed, gentle
+glowing hands, relieved expression
+
+battle_hymn.png
+A bard mid-song with radiant musical notes swirling around a growing,
+empowered knight whose armor glows brighter
+
+chain_sparks.png
+Four small forked lightning arcs jumping unpredictably between multiple
+silhouetted enemies, chaotic energy
+
+cinder_nova.png
+A ring of fire erupting outward from a mage at the center, washing over an
+enemy battle line, embers everywhere
+
+tomes_of_insight.png
+Two enchanted books flying open above a scholar's head, pages streaming
+glowing glyphs into their eyes
+
+
+MAGE (MERLIN)
+-------------
+
+arcane_dart.png
+A precise needle of violet-blue arcane energy shot from an elderly wizard's
+staff, clean and surgical
+
+frost_prison.png
+An enemy warrior frozen mid-swing inside a jagged translucent block of blue
+ice, frost spreading at the base
+
+starfall_adept.png
+A young astronomer-mage in star-patterned robes raining tiny meteors across
+an enemy army, cosmic night sky backdrop
+
+
+WARLOCK (MORGANA)
+-----------------
+
+gloom_imp.png
+A grinning purple imp bursting from a summoning circle while dark tendrils
+drain a drop of blood from its summoner's hand
+
+soul_tithe.png
+A sorceress offering a wisp of her own glowing life-essence to a floating
+dark grimoire, which opens with two shining pages
+
+shadow_rend.png
+A claw of solid shadow tearing through a knight's armor while thorns prick
+the caster's outstretched arm
+
+
+PALADIN (PARCIFAL)
+------------------
+
+oath_of_dawn.png
+A kneeling knight receiving a luminous golden barrier from sunrise light
+breaking over a hill, solemn vow
+
+squire_muster.png
+Two eager teenage squires in oversized helmets running onto a battlefield
+carrying banner and sword, morning light
+
+grail_knight.png
+A radiant knight in white-gold armor holding a shining chalice aloft,
+wrapped in a protective halo
+
+
+WARRIOR (LANCELOT)
+------------------
+
+rallying_strike.png
+A commander clashing his sword against a soldier's blade to ignite it with
+red battle-fury, the soldier's eyes lighting up
+
+iron_bulwark.png
+Interlocking iron tower shields slamming together into a wall in front of a
+general reading a dispatch
+
+tourney_champion.png
+A victorious tournament knight raising a lance, fresh plates of armor
+magnetically assembling onto his body, confetti and banners
+
+
+PRIEST (MARTIN)
+---------------
+
+radiant_light.png
+A column of warm white-gold light descending on a wounded soldier whose
+wounds close, dust motes glowing
+
+humble_words.png
+A calm friar whispering to a hulking raging berserker whose weapon dissolves
+into flower petals, fury draining from his face
+
+cloister_healer.png
+A gentle monastery healer with a glowing censer tending a patient on a cot,
+candlelight, herbs hanging
+
+
+HUNTER (ROBIN HOOD)
+-------------------
+
+trusty_hound.png
+An eager scruffy hunting hound sprinting flat-out through forest undergrowth
+the moment its leash is slipped
+
+pack_call.png
+A hooded ranger blowing a bone whistle as two lean grey wolves materialize
+from mist on either side
+
+ambush_volley.png
+Arrows raining from hidden archers in tree canopy onto two surprised enemy
+soldiers below, dappled forest light
+
+
+TOKENS & MISC
+-------------
+
+emberling.png
+A tiny cheerful flame spirit with stubby arms hopping out of a pile of ash,
+big glowing eyes
+
+squire.png
+A single brave young squire in slightly-too-big chainmail holding a practice
+sword with both hands, determined face
+
+wolf.png
+A lean grey wolf mid-lunge with bared teeth, fast and fragile, misty forest
+behind
+
+coin.png
+A single ornate gold coin spinning in the air catching magical light,
+sparkles trailing

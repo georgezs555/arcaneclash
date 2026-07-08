@@ -65,6 +65,15 @@ npm run build      # production build of the client
   mode; click the target to commit, right-click to cancel.
 - Click one of your minions, then an enemy, to attack.
 - The circle next to your hero is your hero power.
+- **Card art** — drop an image named `<cardDefId>.png` (or jpg/webp) into
+  `packages/client/src/art/` and it becomes that card's full-bleed
+  background (restart `npm run dev` after adding files). `ART_PROMPTS.md`
+  at the repo root has a ready-made anime-style prompt for every card,
+  matched to what the card does — feed them to any image generator. Cards
+  without an image fall back to procedural pixel art
+  (`src/game/pixelart.ts`). Frames are rarity-colored; buffs/debuffs pulse a
+  green/red aura around the frame, and hovering a card zooms it and lists
+  its active effects (buffs light green, debuffs light red).
 - **Sound** — effects live in `packages/client/public/sfx` and are wired via
   `src/game/sfx.ts`. Combat sounds are driven by state diffs (deaths, shield
   breaks, freezes, heals, hero damage) so they fire no matter what caused the

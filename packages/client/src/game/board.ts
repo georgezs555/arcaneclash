@@ -16,6 +16,7 @@ import {
 } from "@arcaneclash/engine";
 import { Tweens, easeOutCubic, easeInOutQuad } from "./tween";
 import { playSfx, type SfxName } from "./sfx";
+import { cardArtTexture, clearArtCache } from "./cardart";
 
 const HERO_POWER_SFX: Record<string, SfxName> = {
   hp_flame: "hero_power_flame",
@@ -27,19 +28,34 @@ const HERO_POWER_SFX: Record<string, SfxName> = {
 };
 
 export const VIEW_W = 1280;
-export const VIEW_H = 800;
+export const VIEW_H = 860;
 
-const HAND = { w: 104, h: 148 };
-const MINION = { w: 92, h: 118 };
+const HAND = { w: 118, h: 166 };
+const MINION = { w: 106, h: 136 };
 
 const Y = {
-  topHand: 62,
-  topHero: 182,
-  topBoard: 320,
-  bottomBoard: 462,
-  bottomHero: 600,
-  bottomHand: 722,
+  topHand: 60,
+  topHero: 200,
+  topBoard: 345,
+  bottomBoard: 500,
+  bottomHero: 645,
+  bottomHand: 776,
 };
+
+const BUFF_COLOR = 0x86efac; // light green
+const DEBUFF_COLOR = 0xfca5a5; // light red
+
+const RARITY_COLORS: Record<string, number> = {
+  basic: 0x8b93a3,
+  common: 0xd7dde7,
+  rare: 0x3b82f6,
+  epic: 0xa855f7,
+  legendary: 0xf59e0b,
+};
+
+function rarityColor(def: CardDef): number {
+  return RARITY_COLORS[def.rarity ?? "common"] ?? RARITY_COLORS.common;
+}
 
 type Pending =
   | { kind: "play"; instanceId: string }
@@ -80,7 +96,14 @@ function label(
 
 function clearChildren(c: PIXI.Container): void {
   while (c.children.length > 0) {
-    c.children[0].destroy({ children: true, texture: true, baseTexture: true });
+    const child = c.children[0];
+    // Sprites use shared cached art textures; everything else (Graphics,
+    // Text) owns its texture and should release it.
+    if (child instanceof PIXI.Sprite && !(child instanceof PIXI.Text)) {
+      child.destroy({ children: true, texture: false, baseTexture: false });
+    } else {
+      child.destroy({ children: true, texture: true, baseTexture: true });
+    }
   }
 }
 
@@ -96,6 +119,51 @@ function statGem(x: number, y: number, color: number, value: string, dim = 14): 
   return wrap;
 }
 
+/**
+ * Full-bleed pixel art with a frame around the whole card: an outer status
+ * border (selected/actable/taunt) and an inner rarity-colored frame with
+ * pixel corner accents.
+ */
+function cardChrome(
+  node: PIXI.Container,
+  defId: string,
+  def: CardDef,
+  w: number,
+  h: number,
+  statusBorder: number,
+  statusWidth: number,
+): void {
+  const art = new PIXI.Sprite(cardArtTexture(defId));
+  art.position.set(-w / 2, -h / 2);
+  art.width = w;
+  art.height = h;
+  node.addChild(art);
+
+  const frame = new PIXI.Graphics();
+  // Outer status border, hugging the card edge.
+  frame.lineStyle({ width: statusWidth, color: statusBorder });
+  frame.drawRect(
+    -w / 2 + statusWidth / 2,
+    -h / 2 + statusWidth / 2,
+    w - statusWidth,
+    h - statusWidth,
+  );
+  // Inner rarity frame.
+  const inset = statusWidth + 2;
+  frame.lineStyle({ width: 2, color: rarityColor(def), alpha: 0.95 });
+  frame.drawRect(-w / 2 + inset, -h / 2 + inset, w - inset * 2, h - inset * 2);
+  // Pixel corner accents.
+  frame.lineStyle();
+  frame.beginFill(rarityColor(def));
+  const c = 5;
+  frame.drawRect(-w / 2 + inset - 1, -h / 2 + inset - 1, c, c);
+  frame.drawRect(w / 2 - inset - c + 1, -h / 2 + inset - 1, c, c);
+  frame.drawRect(-w / 2 + inset - 1, h / 2 - inset - c + 1, c, c);
+  frame.drawRect(w / 2 - inset - c + 1, h / 2 - inset - c + 1, c, c);
+  frame.endFill();
+  node.addChild(frame);
+}
+
 function drawHandCard(
   node: PIXI.Container,
   card: CardInstance,
@@ -104,33 +172,36 @@ function drawHandCard(
   selected: boolean,
 ): void {
   const { w, h } = HAND;
-  const g = new PIXI.Graphics();
-  const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : 0x0b0f19;
-  g.lineStyle({ width: 3, color: border });
-  g.beginFill(def.type === "spell" ? 0x24405c : 0x40365a);
-  g.drawRoundedRect(-w / 2, -h / 2, w, h, 10);
-  g.endFill();
-  node.addChild(g);
+  const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : 0x11151f;
 
-  node.addChild(statGem(-w / 2 + 16, -h / 2 + 16, 0x2563eb, String(def.cost)));
+  cardChrome(node, card.defId, def, w, h, border, 4);
+
+  // Readability bands over the art: name strip + rules text box.
+  const bands = new PIXI.Graphics();
+  bands.beginFill(0x0b0f19, 0.68);
+  bands.drawRect(-w / 2 + 7, -h / 2 + 62, w - 14, 26);
+  if (def.text) bands.drawRect(-w / 2 + 7, h / 2 - 74, w - 14, 48);
+  bands.endFill();
+  node.addChild(bands);
 
   const name = label(def.name, 11, 0xffffff, {
     wordWrap: true,
-    wordWrapWidth: w - 16,
+    wordWrapWidth: w - 18,
   });
-  name.position.set(0, -h / 2 + 44);
+  name.position.set(0, -h / 2 + 75);
   node.addChild(name);
 
   if (def.text) {
-    const text = label(def.text, 9, 0xcbd5e1, {
+    const text = label(def.text, 9, 0xe2e8f0, {
       wordWrap: true,
-      wordWrapWidth: w - 16,
+      wordWrapWidth: w - 22,
       fontWeight: "400",
     });
-    text.position.set(0, h * 0.13);
+    text.position.set(0, h / 2 - 50);
     node.addChild(text);
   }
 
+  node.addChild(statGem(-w / 2 + 16, -h / 2 + 16, 0x2563eb, String(def.cost)));
   if (def.type === "minion") {
     node.addChild(statGem(-w / 2 + 15, h / 2 - 15, 0xd97706, String(card.attack)));
     node.addChild(statGem(w / 2 - 15, h / 2 - 15, 0xdc2626, String(card.health)));
@@ -152,33 +223,58 @@ function drawMinion(
     node.addChild(glow);
   }
   const taunt = card.keywords.includes("taunt");
-  const g = new PIXI.Graphics();
-  const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : taunt ? 0x94a3b8 : 0x0b0f19;
-  g.lineStyle({ width: taunt ? 5 : 3, color: border });
-  g.beginFill(taunt ? 0x3f4655 : 0x374151);
-  g.drawRoundedRect(-w / 2, -h / 2, w, h, 10);
-  g.endFill();
-  node.addChild(g);
+  const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : taunt ? 0x94a3b8 : 0x11151f;
+
+  cardChrome(node, card.defId, def, w, h, border, taunt ? 5 : 4);
+
+  // Name strip over the art, low enough to leave the creature visible.
+  const bands = new PIXI.Graphics();
+  bands.beginFill(0x0b0f19, 0.68);
+  bands.drawRect(-w / 2 + 7, h / 2 - 52, w - 14, 24);
+  bands.endFill();
+  node.addChild(bands);
 
   const name = label(def.name, 10, 0xf1f5f9, {
     wordWrap: true,
-    wordWrapWidth: w - 12,
+    wordWrapWidth: w - 16,
   });
-  name.position.set(0, -h / 2 + 26);
+  name.position.set(0, h / 2 - 40);
   node.addChild(name);
 
   const kw = card.keywords.filter((k) => k !== "divineShield").join(" · ");
   if (kw) {
-    const t = label(kw, 8, 0xa5b4fc, { fontWeight: "400" });
-    t.position.set(0, 6);
+    const t = label(kw, 8, 0xc7d2fe, { fontWeight: "600" });
+    t.position.set(0, h / 2 - 21);
     node.addChild(t);
   }
 
-  node.addChild(statGem(-w / 2 + 14, h / 2 - 14, 0xd97706, String(card.attack), 13));
-  const hpColor = card.health < card.maxHealth ? 0xf87171 : 0xffffff;
+  // Stat gems tint when modified from the printed values.
+  const baseAtk = def.attack ?? 0;
+  const atkColor =
+    card.attack > baseAtk ? BUFF_COLOR : card.attack < baseAtk ? DEBUFF_COLOR : 0xffffff;
+  const atk = statGem(-w / 2 + 14, h / 2 - 14, 0xd97706, "", 13);
+  atk.addChild(label(String(card.attack), 13, atkColor, { fontWeight: "700" }));
+  node.addChild(atk);
+
+  const hpColor =
+    card.health < card.maxHealth
+      ? DEBUFF_COLOR
+      : card.maxHealth > (def.health ?? 0)
+        ? BUFF_COLOR
+        : 0xffffff;
   const hp = statGem(w / 2 - 14, h / 2 - 14, 0xdc2626, "", 13);
   hp.addChild(label(String(card.health), 13, hpColor, { fontWeight: "700" }));
   node.addChild(hp);
+
+  if (card.frozen) {
+    const ice = new PIXI.Graphics();
+    ice.lineStyle({ width: 3, color: 0x7dd3fc, alpha: 0.9 });
+    ice.drawRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 8);
+    node.addChild(ice);
+    const t = label("❄", 16, 0xbae6fd);
+    t.position.set(0, -h / 2 + 40);
+    node.addChild(t);
+  }
 }
 
 function drawCardBack(node: PIXI.Container): void {
@@ -203,7 +299,11 @@ class CardNode extends PIXI.Container {
   readonly id: string;
   zone: "hand" | "board" = "hand";
 
-  constructor(id: string, onTap: (id: string) => void) {
+  constructor(
+    id: string,
+    onTap: (id: string) => void,
+    onHover: (id: string, over: boolean) => void,
+  ) {
     super();
     this.id = id;
     this.eventMode = "static";
@@ -212,6 +312,8 @@ class CardNode extends PIXI.Container {
       e.stopPropagation();
       onTap(this.id);
     });
+    this.on("pointerover", () => onHover(this.id, true));
+    this.on("pointerout", () => onHover(this.id, false));
   }
 
   redraw(slot: Slot, selected: boolean): void {
@@ -239,6 +341,9 @@ export class Board {
   private pending: Pending | null = null;
   private pendingOrigin: { x: number; y: number } | null = null;
   private state: GameState | null = null;
+  private lastSlots = new Map<string, Slot>();
+  private statusPanel: PIXI.Container | null = null;
+  private hoveredId: string | null = null;
   private bottom: PlayerIndex = 0;
   private submit: (a: Action) => string | null;
   private seatNames: [string, string];
@@ -274,8 +379,8 @@ export class Board {
     const decor = new PIXI.Graphics();
     decor.zIndex = 0;
     decor.beginFill(0x1d2a40);
-    decor.drawRoundedRect(VIEW_W / 2 - 440, Y.topBoard - 66, 880, 132, 16);
-    decor.drawRoundedRect(VIEW_W / 2 - 440, Y.bottomBoard - 66, 880, 132, 16);
+    decor.drawRoundedRect(VIEW_W / 2 - 440, Y.topBoard - 76, 880, 152, 16);
+    decor.drawRoundedRect(VIEW_W / 2 - 440, Y.bottomBoard - 76, 880, 152, 16);
     decor.endFill();
     decor.lineStyle({ width: 2, color: 0x2c3e5c });
     decor.moveTo(VIEW_W / 2 - 420, (Y.topBoard + Y.bottomBoard) / 2);
@@ -327,6 +432,8 @@ export class Board {
 
   destroy(): void {
     this.app.destroy(true, { children: true, texture: true, baseTexture: true });
+    // The destroy above tears down the shared art textures with the stage.
+    clearArtCache();
   }
 
   // -------------------------------------------------------------------------
@@ -402,10 +509,15 @@ export class Board {
 
   private applyState(prev: GameState | null, state: GameState): void {
     const slots = this.computeLayout(state);
+    this.lastSlots = slots;
 
     for (const [id, node] of [...this.nodes]) {
       if (!slots.has(id)) {
         this.nodes.delete(id);
+        if (this.hoveredId === id) {
+          this.hoveredId = null;
+          this.hideStatusPanel();
+        }
         node.eventMode = "none";
         this.tweens.to(node, { alpha: 0 }, 300, easeOutCubic, () => {
           node.destroy({ children: true });
@@ -413,10 +525,17 @@ export class Board {
       }
     }
 
+    // Stat values may have changed under the cursor; drop the stale panel.
+    this.hideStatusPanel();
+
     for (const [id, slot] of slots) {
       let node = this.nodes.get(id);
       if (!node) {
-        node = new CardNode(id, (nid) => this.onCardTap(nid));
+        node = new CardNode(
+          id,
+          (nid) => this.onCardTap(nid),
+          (nid, over) => this.onHover(nid, over),
+        );
         this.nodes.set(id, node);
         this.cardLayer.addChild(node);
         if (slot.zone === "hand") {
@@ -646,6 +765,93 @@ export class Board {
   }
 
   // -------------------------------------------------------------------------
+  // Hover zoom + status panel
+  // -------------------------------------------------------------------------
+
+  private onHover(id: string, over: boolean): void {
+    const node = this.nodes.get(id);
+    const slot = this.lastSlots.get(id);
+    if (!node || !slot || !this.state) return;
+    // Card backs (opponent hand) don't zoom or reveal anything.
+    if (slot.mode === "back") return;
+
+    if (over) {
+      this.hoveredId = id;
+      node.zIndex = 35;
+      this.tweens.to(node.scale, { x: 1.16, y: 1.16 }, 120);
+      // Lift bottom-hand cards so the zoom doesn't clip off-canvas.
+      if (slot.zone === "hand") {
+        this.tweens.to(node, { y: slot.y - 16 }, 120);
+      }
+      if (slot.zone === "board") this.showStatusPanel(slot.card, slot);
+    } else {
+      if (this.hoveredId === id) this.hoveredId = null;
+      node.zIndex = slot.zone === "hand" ? 20 : 10;
+      this.tweens.to(node.scale, { x: 1, y: 1 }, 120);
+      this.tweens.to(node, { x: slot.x, y: slot.y }, 120);
+      this.hideStatusPanel();
+    }
+  }
+
+  private showStatusPanel(card: CardInstance, slot: Slot): void {
+    this.hideStatusPanel();
+    const entries = statusEntries(card);
+    if (entries.length === 0) return;
+
+    const panel = new PIXI.Container();
+    const rowH = 20;
+    const padX = 10;
+    const padY = 8;
+    const width = 150;
+    const height = entries.length * rowH + padY * 2;
+
+    const bg = new PIXI.Graphics();
+    bg.lineStyle({ width: 2, color: 0x2c3e5c });
+    bg.beginFill(0x0b0f19, 0.94);
+    bg.drawRoundedRect(0, 0, width, height, 8);
+    bg.endFill();
+    panel.addChild(bg);
+
+    entries.forEach((entry, i) => {
+      const t = label(entry.text, 12, entry.buff ? BUFF_COLOR : DEBUFF_COLOR, {
+        fontWeight: "600",
+      });
+      t.anchor.set(0, 0.5);
+      t.position.set(padX, padY + rowH * i + rowH / 2);
+      panel.addChild(t);
+    });
+
+    // Right of the card, or left when too close to the edge.
+    const gap = MINION.w / 2 + 14;
+    const px =
+      slot.x + gap + width > VIEW_W - 8 ? slot.x - gap - width : slot.x + gap;
+    panel.position.set(px, slot.y - height / 2);
+    panel.eventMode = "none";
+    this.fxLayer.addChild(panel);
+    this.statusPanel = panel;
+  }
+
+  private hideStatusPanel(): void {
+    if (this.statusPanel) {
+      this.statusPanel.destroy({ children: true });
+      this.statusPanel = null;
+    }
+  }
+
+  /** Pulse a colored ring around a card frame (green buff / red debuff). */
+  private frameAura(x: number, y: number, buff: boolean): void {
+    const { w, h } = MINION;
+    const g = new PIXI.Graphics();
+    g.lineStyle({ width: 5, color: buff ? BUFF_COLOR : DEBUFF_COLOR, alpha: 0.95 });
+    g.drawRoundedRect(-w / 2 - 6, -h / 2 - 6, w + 12, h + 12, 13);
+    g.position.set(x, y);
+    g.scale.set(0.94);
+    this.fxLayer.addChild(g);
+    this.tweens.to(g.scale, { x: 1.1, y: 1.1 }, 500, easeOutCubic);
+    this.tweens.to(g, { alpha: 0 }, 900, easeOutCubic, () => g.destroy());
+  }
+
+  // -------------------------------------------------------------------------
   // FX
   // -------------------------------------------------------------------------
 
@@ -695,6 +901,18 @@ export class Board {
         if (delta > 0) sounds.add("heal");
         const slot = slots.get(m.instanceId);
         if (delta !== 0 && slot) this.floatText(delta, slot.x, slot.y);
+
+        // Frame aura on buffs/debuffs (stat changes and status effects).
+        const buffed =
+          m.attack > before.attack ||
+          m.maxHealth > before.maxHealth ||
+          (!before.divineShield && m.divineShield);
+        const debuffed =
+          m.attack < before.attack ||
+          (!before.frozen && m.frozen) ||
+          (before.divineShield && !m.divineShield);
+        if (slot && buffed) this.frameAura(slot.x, slot.y, true);
+        if (slot && debuffed) this.frameAura(slot.x, slot.y, false);
       }
 
       const hBefore = prev.players[p].hero.health + prev.players[p].hero.armor;
@@ -738,6 +956,32 @@ export class Board {
       t.destroy();
     });
   }
+}
+
+/** Active buffs (green) and debuffs (red) on a minion vs its printed card. */
+function statusEntries(card: CardInstance): { text: string; buff: boolean }[] {
+  const def = getCardDef(card.defId);
+  const out: { text: string; buff: boolean }[] = [];
+  const baseAtk = def.attack ?? 0;
+  const baseHp = def.health ?? 0;
+
+  if (card.attack > baseAtk) out.push({ text: `+${card.attack - baseAtk} Attack`, buff: true });
+  if (card.attack < baseAtk) out.push({ text: `${card.attack - baseAtk} Attack`, buff: false });
+  if (card.maxHealth > baseHp) out.push({ text: `+${card.maxHealth - baseHp} Health`, buff: true });
+  if (card.maxHealth < baseHp) out.push({ text: `${card.maxHealth - baseHp} Health`, buff: false });
+  if (card.divineShield) out.push({ text: "Divine Shield", buff: true });
+  // Keywords granted after the card was printed (e.g. by future card effects).
+  for (const k of card.keywords) {
+    if (k === "divineShield") continue;
+    if (!(def.keywords ?? []).includes(k)) {
+      out.push({ text: k.charAt(0).toUpperCase() + k.slice(1), buff: true });
+    }
+  }
+  if (card.health < card.maxHealth) {
+    out.push({ text: `Damaged ${card.health}/${card.maxHealth}`, buff: false });
+  }
+  if (card.frozen) out.push({ text: "Frozen", buff: false });
+  return out;
 }
 
 function locate(
