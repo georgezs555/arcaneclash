@@ -15,6 +15,16 @@ import {
   type PlayerIndex,
 } from "@arcaneclash/engine";
 import { Tweens, easeOutCubic, easeInOutQuad } from "./tween";
+import { playSfx, type SfxName } from "./sfx";
+
+const HERO_POWER_SFX: Record<string, SfxName> = {
+  hp_flame: "hero_power_flame",
+  hp_bargain: "hero_power_bargain",
+  hp_rally: "hero_power_rally",
+  hp_bulwark: "hero_power_bulwark",
+  hp_mend: "hero_power_mend",
+  hp_shot: "hero_power_shot",
+};
 
 export const VIEW_W = 1280;
 export const VIEW_H = 800;
@@ -328,6 +338,7 @@ export class Board {
     this.state = state;
     this.bottom = bottom;
     this.clearPending(false);
+    this.playActionSounds(prev, state, action);
 
     // Attack lunge: animate the attacker into the target before re-laying out.
     if (action?.type === "ATTACK" && prev) {
@@ -338,12 +349,55 @@ export class Board {
         const dx = node.x + (targetPos.x - node.x) * 0.82;
         const dy = node.y + (targetPos.y - node.y) * 0.82;
         this.tweens.to(node, { x: dx, y: dy }, 160, easeInOutQuad, () => {
+          playSfx("attack_impact");
           this.applyState(prev, state);
         });
         return;
       }
     }
+    if (action?.type === "ATTACK") playSfx("attack_impact");
     this.applyState(prev, state);
+  }
+
+  private playActionSounds(
+    prev: GameState | null,
+    state: GameState,
+    action: Action | undefined,
+  ): void {
+    if (prev?.phase === "mulligan" && state.phase === "playing") {
+      playSfx("game_start_gong");
+    }
+    if (!action) return;
+    switch (action.type) {
+      case "PLAY_CARD": {
+        // The played card is gone from hand; find its def via the log-free
+        // route: it lived in prev's hand.
+        const owner = prev?.players[action.player];
+        const card = owner?.hand.find((c) => c.instanceId === action.instanceId);
+        if (!card) break;
+        const def = getCardDef(card.defId);
+        if (card.defId === "coin") playSfx("coin_flip");
+        else playSfx(def.type === "minion" ? "card_play_minion" : "card_play_spell");
+        break;
+      }
+      case "HERO_POWER": {
+        const hpId = state.players[action.player].heroPowerId;
+        const sfx = HERO_POWER_SFX[hpId];
+        if (sfx) playSfx(sfx);
+        break;
+      }
+      case "END_TURN":
+        // Chime only when the turn comes to the bottom seat (yours).
+        if (state.phase === "playing" && state.active === this.bottom) {
+          playSfx("turn_start");
+        }
+        break;
+      case "MULLIGAN":
+        playSfx("card_draw");
+        break;
+      case "ATTACK":
+        break; // handled with the lunge
+    }
   }
 
   private applyState(prev: GameState | null, state: GameState): void {
@@ -569,6 +623,7 @@ export class Board {
   }
 
   private setPending(pending: Pending): void {
+    playSfx("target_lock");
     this.pending = pending;
     let node: PIXI.Container | undefined;
     if (pending.kind === "play") node = this.nodes.get(pending.instanceId);
@@ -620,25 +675,48 @@ export class Board {
     next: GameState,
     slots: Map<string, Slot>,
   ): void {
+    const sounds = new Set<SfxName>();
     const prevMinions = new Map<string, CardInstance>();
     for (const p of [0, 1] as const)
       for (const m of prev.players[p].board) prevMinions.set(m.instanceId, m);
 
     for (const p of [0, 1] as const) {
+      const nextIds = new Set(next.players[p].board.map((m) => m.instanceId));
+      for (const m of prev.players[p].board) {
+        if (!nextIds.has(m.instanceId)) sounds.add("minion_death");
+      }
+
       for (const m of next.players[p].board) {
         const before = prevMinions.get(m.instanceId);
         if (!before) continue;
+        if (before.divineShield && !m.divineShield) sounds.add("divine_shield_break");
+        if (!before.frozen && m.frozen) sounds.add("freeze");
         const delta = m.health - before.health;
+        if (delta > 0) sounds.add("heal");
         const slot = slots.get(m.instanceId);
         if (delta !== 0 && slot) this.floatText(delta, slot.x, slot.y);
       }
+
       const hBefore = prev.players[p].hero.health + prev.players[p].hero.armor;
       const hAfter = next.players[p].hero.health + next.players[p].hero.armor;
       if (hAfter !== hBefore) {
+        if (hAfter < hBefore) sounds.add("hero_damage");
+        else sounds.add("heal");
         const heroY = p === this.bottom ? Y.bottomHero : Y.topHero;
         this.floatText(hAfter - hBefore, VIEW_W / 2, heroY);
       }
     }
+
+    // Your own draws (turn start, card effects) — not the opponent's.
+    if (
+      next.players[this.bottom].hand.length > prev.players[this.bottom].hand.length
+    ) {
+      sounds.add("card_draw");
+    }
+
+    // Stagger distinct sounds slightly so simultaneous events stay readable.
+    let i = 0;
+    for (const name of sounds) playSfx(name, i++ * 100);
   }
 
   private floatText(delta: number, x: number, y: number): void {
@@ -652,6 +730,7 @@ export class Board {
   }
 
   private toast(msg: string): void {
+    playSfx("invalid_action");
     const t = label(msg, 21, 0xfecaca, { fontWeight: "700" });
     t.position.set(VIEW_W / 2, VIEW_H / 2 - 30);
     this.fxLayer.addChild(t);

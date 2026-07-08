@@ -15,6 +15,7 @@ import {
   type CardDef,
 } from "@arcaneclash/engine";
 import type { DeckData } from "./game/decks";
+import { playSfx } from "./game/sfx";
 
 // ---------------------------------------------------------------------------
 // Deck list
@@ -124,12 +125,14 @@ export function DeckEditor({
   const add = (def: CardDef) => {
     if (cards.length >= DECK_SIZE) return;
     if ((counts.get(def.id) ?? 0) >= limitOf(def)) return;
+    playSfx("deck_add_card");
     setCards([...cards, def.id]);
   };
 
   const removeOne = (id: string) => {
     const i = cards.indexOf(id);
     if (i < 0) return;
+    playSfx("deck_remove_card");
     const next = [...cards];
     next.splice(i, 1);
     setCards(next);

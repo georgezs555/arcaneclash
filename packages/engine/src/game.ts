@@ -41,7 +41,7 @@ export function createGame(setup: GameSetup): GameState {
     players: [emptyPlayer(setup.heroes[0]), emptyPlayer(setup.heroes[1])],
     active: 0,
     turn: 0,
-    phase: "playing",
+    phase: "mulligan",
     winner: null,
     rng: (setup.seed ?? Date.now()) >>> 0 || 1,
     nextInstanceId: 1,
@@ -60,13 +60,13 @@ export function createGame(setup: GameSetup): GameState {
     shuffle(pl.deck, rng);
   }
 
-  // Opening hands: 3 for first player, 4 + The Coin for second.
+  // Opening hands: 3 for first player, 4 for second. The game then waits in
+  // the mulligan phase; the Coin and the first turn arrive once both players
+  // have submitted their mulligan.
   const second = other(state.active);
   for (let i = 0; i < 3; i++) drawCard(state, state.active);
   for (let i = 0; i < 4; i++) drawCard(state, second);
-  state.players[second].hand.push(createInstance(state, "coin", second));
 
-  beginTurn(state);
   return state;
 }
 
@@ -77,6 +77,7 @@ function emptyPlayer(heroId: string): PlayerState {
     heroId: hero.id,
     heroPowerId: hero.heroPowerId,
     heroPowerUsed: false,
+    mulliganDone: false,
     mana: 0,
     maxMana: 0,
     hand: [],
@@ -135,9 +136,26 @@ export function canAttack(_state: GameState, m: CardInstance): boolean {
 }
 
 export function validateAction(state: GameState, action: Action): string | null {
-  if (state.phase !== "playing") return "Game is over";
-  if (action.player !== state.active) return "Not your turn";
+  if (state.phase === "gameover") return "Game is over";
   const pl = state.players[action.player];
+
+  // Mulligan is the one action both players may take, before turns start.
+  if (action.type === "MULLIGAN") {
+    if (state.phase !== "mulligan") return "Mulligan is already over";
+    if (pl.mulliganDone) return "Mulligan already submitted";
+    if (!Array.isArray(action.replace)) return "Malformed mulligan";
+    const handIds = new Set(pl.hand.map((c) => c.instanceId));
+    const seen = new Set<string>();
+    for (const id of action.replace) {
+      if (!handIds.has(id)) return "Card not in your hand";
+      if (seen.has(id)) return "Duplicate card in mulligan";
+      seen.add(id);
+    }
+    return null;
+  }
+
+  if (state.phase !== "playing") return "The game hasn't started yet";
+  if (action.player !== state.active) return "Not your turn";
 
   switch (action.type) {
     case "END_TURN":
@@ -211,6 +229,31 @@ export function applyAction(prev: GameState, action: Action): GameState {
   const rng = makeRng(state);
 
   switch (action.type) {
+    case "MULLIGAN": {
+      const ids = new Set(action.replace);
+      const rejected = pl.hand.filter((c) => ids.has(c.instanceId));
+      pl.hand = pl.hand.filter((c) => !ids.has(c.instanceId));
+      // Draw replacements first so the rejects can't come straight back.
+      for (let i = 0; i < rejected.length; i++) {
+        const card = pl.deck.pop();
+        if (card) pl.hand.push(card);
+      }
+      pl.deck.push(...rejected);
+      shuffle(pl.deck, rng);
+      pl.mulliganDone = true;
+      state.log.push(
+        `P${action.player + 1} mulliganed ${rejected.length} card(s)`,
+      );
+
+      if (state.players[0].mulliganDone && state.players[1].mulliganDone) {
+        const second = other(state.active);
+        state.players[second].hand.push(createInstance(state, "coin", second));
+        state.phase = "playing";
+        beginTurn(state);
+      }
+      break;
+    }
+
     case "END_TURN": {
       state.log.push(`P${action.player + 1} ended turn ${state.turn}`);
       // Thaw the ending player's minions: freeze costs a minion its next turn.

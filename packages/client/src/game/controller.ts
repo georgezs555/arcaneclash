@@ -89,6 +89,11 @@ export class GameController implements Controller {
   /** Which player the bottom of the screen belongs to. */
   bottomSeat(): PlayerIndex {
     if (this.mode === "hotseat") {
+      if (this.state.phase === "mulligan") {
+        // Players mulligan one after the other at the bottom seat.
+        const idx = this.state.players.findIndex((p) => !p.mulliganDone);
+        return (idx === -1 ? 0 : idx) as PlayerIndex;
+      }
       return this.state.phase === "playing" ? this.state.active : 0;
     }
     return 0;
@@ -117,8 +122,11 @@ export class GameController implements Controller {
 
   /** Submit a human action. Returns an error message, or null on success. */
   trySubmit(action: Action): string | null {
-    if (!this.isHumanTurn()) return "It's not your turn";
     if (this.mode === "ai" && action.player === AI_SEAT) return "It's not your turn";
+    // Mulligan bypasses the turn gate: both players submit during that phase.
+    if (action.type !== "MULLIGAN" && !this.isHumanTurn()) {
+      return "It's not your turn";
+    }
     const err = validateAction(this.state, action);
     if (err) {
       this.emit({ state: this.state, error: err });
@@ -134,13 +142,19 @@ export class GameController implements Controller {
     this.maybeScheduleAI();
   }
 
+  private aiShouldAct(): boolean {
+    if (this.state.phase === "mulligan") {
+      return !this.state.players[AI_SEAT].mulliganDone;
+    }
+    return this.state.phase === "playing" && this.state.active === AI_SEAT;
+  }
+
   private maybeScheduleAI(): void {
     if (this.mode !== "ai" || this.destroyed) return;
-    if (this.state.phase !== "playing" || this.state.active !== AI_SEAT) return;
+    if (!this.aiShouldAct()) return;
     if (this.aiTimer) clearTimeout(this.aiTimer);
     this.aiTimer = setTimeout(() => {
-      if (this.destroyed || this.state.active !== AI_SEAT) return;
-      if (this.state.phase !== "playing") return;
+      if (this.destroyed || !this.aiShouldAct()) return;
       const action = chooseAction(this.state, AI_SEAT);
       this.apply(action);
     }, AI_ACTION_DELAY_MS);

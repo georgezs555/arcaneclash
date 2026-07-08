@@ -88,6 +88,54 @@ button:disabled {
   border-color: transparent;
 }
 
+.account-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  width: 240px;
+  align-items: stretch;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.account-panel input {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: #e2e8f0;
+  font: inherit;
+}
+
+.account-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.account-buttons button {
+  flex: 1;
+  width: auto;
+  font-size: 14px;
+  padding: 8px;
+}
+
+.sync-error {
+  color: #f87171;
+  font-size: 13px;
+  max-width: 280px;
+  text-align: center;
+}
+
+.cf-class {
+  font-size: 10px;
+  color: #f0abfc;
+  text-transform: capitalize;
+  margin-top: 2px;
+}
+
 .deck-row {
   display: flex;
   gap: 10px;
@@ -528,6 +576,64 @@ button.small.danger {
   margin: 0 0 10px;
 }
 
+/* --- mulligan --- */
+
+.overlay.mulligan h2 {
+  font-size: 34px;
+}
+
+.mull-hand {
+  display: flex;
+  gap: 12px;
+  margin: 14px 0 22px;
+}
+
+.mull-card {
+  position: relative;
+  width: 130px;
+  min-height: 170px;
+  border-radius: 10px;
+  border: 3px solid #0b0f19;
+  background: linear-gradient(160deg, #40365a, #241f33);
+  padding: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.1s, opacity 0.1s, border-color 0.1s;
+  user-select: none;
+}
+
+.mull-card.spell {
+  background: linear-gradient(160deg, #24405c, #182636);
+}
+
+.mull-card:hover {
+  transform: translateY(-4px);
+}
+
+.mull-card.tossed {
+  opacity: 0.45;
+  border-color: #dc2626;
+}
+
+.mull-card .cf-bottom {
+  margin-top: auto;
+}
+
+.mull-x {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 17px;
+  color: #f87171;
+  letter-spacing: 2px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
 /* --- side panel --- */
 
 .side {
@@ -548,6 +654,18 @@ button.small.danger {
   background: #334155;
   padding: 6px 14px;
   font-size: 13px;
+}
+
+.side .mute-btn {
+  margin-left: 8px;
+}
+
+.menu .mute-btn {
+  width: auto;
+  font-size: 13px;
+  padding: 6px 14px;
+  background: #334155;
+  margin-top: 6px;
 }
 
 .log {

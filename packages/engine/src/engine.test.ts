@@ -7,6 +7,7 @@ import {
   canAttack,
   legalActions,
   chooseAction,
+  getCardDef,
   redactState,
   starterDeckFor,
   validateDeck,
@@ -15,13 +16,22 @@ import {
   type CharRef,
 } from "./index";
 
-function newGame(seed = 42, first: PlayerIndex = 0): GameState {
+/** A game still sitting in the mulligan phase. */
+function rawGame(seed = 42, first: PlayerIndex = 0): GameState {
   return createGame({
     decks: [starterDeckFor("merlin"), starterDeckFor("lancelot")],
     heroes: ["merlin", "lancelot"],
     seed,
     first,
   });
+}
+
+/** A game with both mulligans submitted (keeping everything). */
+function newGame(seed = 42, first: PlayerIndex = 0): GameState {
+  let g = rawGame(seed, first);
+  g = applyAction(g, { type: "MULLIGAN", player: 0, replace: [] });
+  g = applyAction(g, { type: "MULLIGAN", player: 1, replace: [] });
+  return g;
 }
 
 /** Force a card into the active player's hand for deterministic tests. */
@@ -43,6 +53,65 @@ function giveMana(state: GameState, amount: number) {
   state.players[state.active].mana = amount;
   state.players[state.active].maxMana = amount;
 }
+
+describe("mulligan", () => {
+  it("game starts in the mulligan phase; turn actions are rejected", () => {
+    const g = rawGame();
+    expect(g.phase).toBe("mulligan");
+    expect(() => applyAction(g, { type: "END_TURN", player: 0 })).toThrow(
+      /hasn't started/,
+    );
+  });
+
+  it("replaced cards are swapped for new ones and shuffled back", () => {
+    const g0 = rawGame();
+    const before = g0.players[0].hand.map((c) => c.instanceId);
+    const deckBefore = g0.players[0].deck.length;
+    const g1 = applyAction(g0, { type: "MULLIGAN", player: 0, replace: before });
+    expect(g1.players[0].hand.length).toBe(before.length);
+    expect(
+      g1.players[0].hand.every((c) => !before.includes(c.instanceId)),
+    ).toBe(true);
+    expect(g1.players[0].deck.length).toBe(deckBefore); // net zero
+    expect(g1.players[0].mulliganDone).toBe(true);
+    expect(g1.phase).toBe("mulligan"); // opponent still deciding
+  });
+
+  it("second mulligan starts the game: coin, mana, turn draw", () => {
+    const g0 = rawGame(42, 0);
+    const g1 = applyAction(g0, { type: "MULLIGAN", player: 0, replace: [] });
+    const g2 = applyAction(g1, { type: "MULLIGAN", player: 1, replace: [] });
+    expect(g2.phase).toBe("playing");
+    expect(g2.turn).toBe(1);
+    expect(g2.players[0].hand.length).toBe(4); // 3 + turn-start draw
+    expect(g2.players[1].hand.length).toBe(5); // 4 + coin
+    expect(g2.players[1].hand.some((c) => c.defId === "coin")).toBe(true);
+    expect(g2.players[0].mana).toBe(1);
+  });
+
+  it("cannot mulligan twice or reject cards you don't hold", () => {
+    const g0 = rawGame();
+    const g1 = applyAction(g0, { type: "MULLIGAN", player: 0, replace: [] });
+    expect(() =>
+      applyAction(g1, { type: "MULLIGAN", player: 0, replace: [] }),
+    ).toThrow(/already submitted/);
+    expect(() =>
+      applyAction(g1, { type: "MULLIGAN", player: 1, replace: ["nope"] }),
+    ).toThrow(/not in your hand/);
+  });
+
+  it("AI mulligans away expensive cards only", () => {
+    const g = rawGame();
+    const action = chooseAction(g, 0);
+    expect(action.type).toBe("MULLIGAN");
+    if (action.type !== "MULLIGAN") return;
+    const hand = g.players[0].hand;
+    for (const c of hand) {
+      const cost = getCardDef(c.defId).cost;
+      expect(action.replace.includes(c.instanceId)).toBe(cost >= 4);
+    }
+  });
+});
 
 describe("game setup", () => {
   it("deals 3 cards to first player, 4 + coin to second", () => {
@@ -391,12 +460,14 @@ describe("classes and freeze", () => {
   });
 
   it("Blood Bargain draws and self-damages", () => {
-    const g0 = createGame({
+    let g0 = createGame({
       decks: [starterDeckFor("morgana"), starterDeckFor("merlin")],
       heroes: ["morgana", "merlin"],
       seed: 9,
       first: 0,
     });
+    g0 = applyAction(g0, { type: "MULLIGAN", player: 0, replace: [] });
+    g0 = applyAction(g0, { type: "MULLIGAN", player: 1, replace: [] });
     giveMana(g0, 10);
     const handBefore = g0.players[0].hand.length;
     const g1 = applyAction(g0, { type: "HERO_POWER", player: 0 });
@@ -423,13 +494,14 @@ describe("redaction", () => {
 });
 
 describe("AI self-play", () => {
-  it("two AIs can finish a full game without errors", () => {
+  it("two AIs can finish a full game (including mulligan) without errors", () => {
     for (const seed of [1, 2, 3]) {
-      let g = newGame(seed);
+      let g = rawGame(seed);
       let safety = 2000;
-      while (g.phase === "playing" && safety-- > 0) {
-        const action = chooseAction(g, g.active);
-        g = applyAction(g, action);
+      while (g.phase !== "gameover" && safety-- > 0) {
+        const p: PlayerIndex =
+          g.phase === "mulligan" ? (g.players[0].mulliganDone ? 1 : 0) : g.active;
+        g = applyAction(g, chooseAction(g, p));
       }
       expect(g.phase).toBe("gameover");
       expect(g.winner).not.toBeNull();

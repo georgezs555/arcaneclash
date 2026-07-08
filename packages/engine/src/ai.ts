@@ -4,6 +4,7 @@
 
 import { applyAction, legalActions } from "./game";
 import { other } from "./mechanics";
+import { getCardDef } from "./registry";
 import type { Action, GameState, PlayerIndex } from "./types";
 
 function evaluate(state: GameState, p: PlayerIndex): number {
@@ -26,6 +27,14 @@ function evaluate(state: GameState, p: PlayerIndex): number {
 
 /** Pick the AI's next single action (call repeatedly until it returns END_TURN). */
 export function chooseAction(state: GameState, p: PlayerIndex): Action {
+  // Mulligan strategy: throw back expensive cards, fish for an early curve.
+  if (state.phase === "mulligan") {
+    const replace = state.players[p].hand
+      .filter((c) => getCardDef(c.defId).cost >= 4)
+      .map((c) => c.instanceId);
+    return { type: "MULLIGAN", player: p, replace };
+  }
+
   const actions = legalActions(state, p);
   const endTurn = actions.find((a) => a.type === "END_TURN")!;
   let best: { action: Action; score: number } = {

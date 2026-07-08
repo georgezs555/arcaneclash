@@ -113,6 +113,7 @@ export interface PlayerState {
   heroId: string;
   heroPowerId: string;
   heroPowerUsed: boolean;
+  mulliganDone: boolean;
   mana: number;
   maxMana: number;
   hand: CardInstance[];
@@ -125,7 +126,7 @@ export interface GameState {
   players: [PlayerState, PlayerState];
   active: PlayerIndex;
   turn: number;
-  phase: "playing" | "gameover";
+  phase: "mulligan" | "playing" | "gameover";
   winner: PlayerIndex | "draw" | null;
   rng: number; // current RNG state (32-bit)
   nextInstanceId: number;
@@ -134,6 +135,7 @@ export interface GameState {
 
 /** The moves a player can submit. */
 export type Action =
+  | { type: "MULLIGAN"; player: PlayerIndex; replace: string[] }
   | { type: "END_TURN"; player: PlayerIndex }
   | {
       type: "PLAY_CARD";

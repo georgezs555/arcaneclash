@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { GameState } from "@arcaneclash/engine";
+import { getCardDef, type CardInstance, type GameState } from "@arcaneclash/engine";
 import {
   GameController,
   type Controller,
   type Mode,
 } from "./game/controller";
-import { NetController, type NetStatus } from "./game/net";
+import { NetController, getPendingMatch, type NetStatus } from "./game/net";
 import { Board } from "./game/board";
 import { DecksScreen, DeckEditor } from "./DeckBuilder";
 import {
@@ -18,6 +18,7 @@ import {
   type DeckData,
 } from "./game/decks";
 import { getSession, login, register, storeSession, type Session } from "./game/auth";
+import { isMuted, playSfx, preloadSfx, setMuted } from "./game/sfx";
 
 type Screen =
   | { kind: "menu" }
@@ -27,12 +28,23 @@ type Screen =
   | { kind: "online"; gameId: number };
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>({ kind: "menu" });
+  const [screen, setScreenRaw] = useState<Screen>({ kind: "menu" });
   const [session, setSession] = useState<Session | null>(getSession());
   const [customDecks, setCustomDecks] = useState<DeckData[]>([]);
   const [deckId, setDeckId] = useState(getSelectedDeckId());
   const [guestName, setGuestName] = useState("");
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    preloadSfx();
+    // A refresh mid-match left a rejoin token behind: go straight back in.
+    if (getPendingMatch()) setScreenRaw({ kind: "online", gameId: 1 });
+  }, []);
+
+  const setScreen = (s: Screen) => {
+    playSfx("ui_click");
+    setScreenRaw(s);
+  };
 
   // (Re)load custom decks whenever the session changes.
   useEffect(() => {
@@ -116,6 +128,7 @@ export default function App() {
           }}
         />
         {syncError && <p className="sync-error">{syncError}</p>}
+        <MuteButton />
       </div>
     );
   }
@@ -243,6 +256,100 @@ function AccountPanel({
   );
 }
 
+function MuteButton() {
+  const [muted, setMutedState] = useState(isMuted());
+  return (
+    <button
+      className="small mute-btn"
+      title={muted ? "Unmute sounds" : "Mute sounds"}
+      onClick={() => {
+        const next = !muted;
+        setMuted(next);
+        setMutedState(next);
+        if (!next) playSfx("ui_click");
+      }}
+    >
+      {muted ? "🔇 Sound off" : "🔊 Sound on"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mulligan overlay
+// ---------------------------------------------------------------------------
+
+function MulliganOverlay({
+  hand,
+  done,
+  opponentDone,
+  playerLabel,
+  onConfirm,
+}: {
+  hand: CardInstance[];
+  done: boolean;
+  opponentDone: boolean;
+  playerLabel: string | null;
+  onConfirm: (replace: string[]) => void;
+}) {
+  const [tossed, setTossed] = useState<Set<string>>(new Set());
+
+  if (done) {
+    return (
+      <div className="overlay mulligan">
+        <h2>Waiting for opponent…</h2>
+        <p className="tagline">They are still choosing their mulligan.</p>
+      </div>
+    );
+  }
+
+  const toggle = (id: string) => {
+    playSfx("ui_click");
+    const next = new Set(tossed);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setTossed(next);
+  };
+
+  return (
+    <div className="overlay mulligan">
+      <h2>{playerLabel ? `${playerLabel} — mulligan` : "Mulligan"}</h2>
+      <p className="tagline">
+        Click the cards you want to throw back; you'll draw replacements.
+      </p>
+      <div className="mull-hand">
+        {hand.map((c) => {
+          const def = getCardDef(c.defId);
+          const out = tossed.has(c.instanceId);
+          return (
+            <div
+              key={c.instanceId}
+              className={`mull-card ${out ? "tossed" : ""} ${def.type}`}
+              onClick={() => toggle(c.instanceId)}
+            >
+              <div className="cf-top">
+                <span className="cf-cost">{def.cost}</span>
+                <span className="cf-name">{def.name}</span>
+              </div>
+              {def.text && <div className="cf-text">{def.text}</div>}
+              {def.type === "minion" && (
+                <div className="cf-bottom">
+                  <span className="cf-atk">{def.attack}</span>
+                  <span className="cf-hp">{def.health}</span>
+                </div>
+              )}
+              {out && <div className="mull-x">REPLACE</div>}
+            </div>
+          );
+        })}
+      </div>
+      <button onClick={() => onConfirm([...tossed])}>
+        {tossed.size > 0 ? `Confirm (replace ${tossed.size})` : "Keep all"}
+      </button>
+      {opponentDone && <p className="tagline">Your opponent is ready.</p>}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Game wrappers
 // ---------------------------------------------------------------------------
@@ -276,12 +383,22 @@ function OnlineGame({
   onRestart: () => void;
 }) {
   const [ctrl] = useState(
-    () => new NetController(`ws://${location.hostname}:8787`, name, deck, token),
+    () =>
+      new NetController(
+        `ws://${location.hostname}:8787`,
+        name,
+        deck,
+        token,
+        getPendingMatch() ?? undefined,
+      ),
   );
   const [status, setStatus] = useState<NetStatus>(ctrl.status);
 
   useEffect(() => {
-    const unsub = ctrl.onStatus(setStatus);
+    const unsub = ctrl.onStatus((s) => {
+      if (s === "playing") playSfx("match_found");
+      setStatus(s);
+    });
     ctrl.start();
     return () => {
       unsub();
@@ -330,14 +447,23 @@ function GameView({
     board.update(ctrl.state, undefined, ctrl.bottomSeat());
 
     let errTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastPhase = ctrl.state.phase;
     const unsub = ctrl.subscribe((ev) => {
       setState(ev.state);
       if (ev.error) {
+        playSfx("invalid_action");
         setError(ev.error);
         if (errTimer) clearTimeout(errTimer);
         errTimer = setTimeout(() => setError(null), 2200);
       } else {
         board.update(ev.state, ev.action, ctrl.bottomSeat());
+        if (ev.state.phase === "gameover" && lastPhase !== "gameover") {
+          const bottomNow = ctrl.bottomSeat();
+          const won =
+            ctrl.modeLabel === "hotseat" || ev.state.winner === bottomNow;
+          playSfx(won ? "victory_fanfare" : "defeat_sting", 500);
+        }
+        lastPhase = ev.state.phase;
       }
     });
     ctrl.start();
@@ -384,12 +510,29 @@ function GameView({
           <button
             className="end-turn"
             disabled={!myTurn}
-            onClick={() => ctrl.trySubmit({ type: "END_TURN", player: bottom })}
+            onClick={() => {
+              playSfx("end_turn_click");
+              ctrl.trySubmit({ type: "END_TURN", player: bottom });
+            }}
           >
             {myTurn ? "End Turn" : "Enemy turn…"}
           </button>
         </div>
         {error && <div className="toast">{error}</div>}
+        {state.phase === "mulligan" && (
+          <MulliganOverlay
+            key={bottom}
+            hand={me.hand}
+            done={me.mulliganDone}
+            opponentDone={state.players[bottom === 0 ? 1 : 0].mulliganDone}
+            playerLabel={
+              ctrl.modeLabel === "hotseat" ? `Player ${bottom + 1}` : null
+            }
+            onConfirm={(replace) =>
+              ctrl.trySubmit({ type: "MULLIGAN", player: bottom, replace })
+            }
+          />
+        )}
         {over && (
           <div className="overlay">
             <h2>{verdict}</h2>
@@ -404,6 +547,7 @@ function GameView({
         <button className="menu-btn" onClick={onMenu}>
           ← Menu
         </button>
+        <MuteButton />
         <h3>Battle log</h3>
         <ul className="log">
           {state.log.slice(-16).map((line, i) => (
