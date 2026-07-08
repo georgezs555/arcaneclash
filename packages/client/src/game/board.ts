@@ -16,7 +16,7 @@ import {
 } from "@arcaneclash/engine";
 import { Tweens, easeOutCubic, easeInOutQuad } from "./tween";
 import { playSfx, type SfxName } from "./sfx";
-import { cardArtTexture, clearArtCache } from "./cardart";
+import { cardArtTexture, clearArtCache, heroArtTexture } from "./cardart";
 
 const HERO_POWER_SFX: Record<string, SfxName> = {
   hp_flame: "hero_power_flame",
@@ -28,18 +28,18 @@ const HERO_POWER_SFX: Record<string, SfxName> = {
 };
 
 export const VIEW_W = 1280;
-export const VIEW_H = 860;
+export const VIEW_H = 1032;
 
-const HAND = { w: 118, h: 166 };
-const MINION = { w: 106, h: 136 };
+const HAND = { w: 158, h: 222 };
+const MINION = { w: 142, h: 182 };
 
 const Y = {
-  topHand: 60,
-  topHero: 200,
-  topBoard: 345,
-  bottomBoard: 500,
-  bottomHero: 645,
-  bottomHand: 776,
+  topHand: 30, // opponent card backs peek in from the top edge
+  topHero: 240,
+  topBoard: 385,
+  bottomBoard: 580,
+  bottomHero: 760,
+  bottomHand: 919,
 };
 
 const BUFF_COLOR = 0x86efac; // light green
@@ -174,37 +174,37 @@ function drawHandCard(
   const { w, h } = HAND;
   const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : 0x11151f;
 
-  cardChrome(node, card.defId, def, w, h, border, 4);
+  cardChrome(node, card.defId, def, w, h, border, 5);
 
   // Readability bands over the art: name strip + rules text box.
   const bands = new PIXI.Graphics();
   bands.beginFill(0x0b0f19, 0.68);
-  bands.drawRect(-w / 2 + 7, -h / 2 + 62, w - 14, 26);
-  if (def.text) bands.drawRect(-w / 2 + 7, h / 2 - 74, w - 14, 48);
+  bands.drawRect(-w / 2 + 9, -h / 2 + 83, w - 18, 34);
+  if (def.text) bands.drawRect(-w / 2 + 9, h / 2 - 99, w - 18, 64);
   bands.endFill();
   node.addChild(bands);
 
-  const name = label(def.name, 11, 0xffffff, {
+  const name = label(def.name, 15, 0xffffff, {
     wordWrap: true,
-    wordWrapWidth: w - 18,
+    wordWrapWidth: w - 24,
   });
-  name.position.set(0, -h / 2 + 75);
+  name.position.set(0, -h / 2 + 100);
   node.addChild(name);
 
   if (def.text) {
-    const text = label(def.text, 9, 0xe2e8f0, {
+    const text = label(def.text, 12, 0xe2e8f0, {
       wordWrap: true,
-      wordWrapWidth: w - 22,
+      wordWrapWidth: w - 30,
       fontWeight: "400",
     });
-    text.position.set(0, h / 2 - 50);
+    text.position.set(0, h / 2 - 67);
     node.addChild(text);
   }
 
-  node.addChild(statGem(-w / 2 + 16, -h / 2 + 16, 0x2563eb, String(def.cost)));
+  node.addChild(statGem(-w / 2 + 21, -h / 2 + 21, 0x2563eb, String(def.cost), 19));
   if (def.type === "minion") {
-    node.addChild(statGem(-w / 2 + 15, h / 2 - 15, 0xd97706, String(card.attack)));
-    node.addChild(statGem(w / 2 - 15, h / 2 - 15, 0xdc2626, String(card.health)));
+    node.addChild(statGem(-w / 2 + 20, h / 2 - 20, 0xd97706, String(card.attack), 19));
+    node.addChild(statGem(w / 2 - 20, h / 2 - 20, 0xdc2626, String(card.health), 19));
   }
 }
 
@@ -225,26 +225,26 @@ function drawMinion(
   const taunt = card.keywords.includes("taunt");
   const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : taunt ? 0x94a3b8 : 0x11151f;
 
-  cardChrome(node, card.defId, def, w, h, border, taunt ? 5 : 4);
+  cardChrome(node, card.defId, def, w, h, border, taunt ? 6 : 5);
 
   // Name strip over the art, low enough to leave the creature visible.
   const bands = new PIXI.Graphics();
   bands.beginFill(0x0b0f19, 0.68);
-  bands.drawRect(-w / 2 + 7, h / 2 - 52, w - 14, 24);
+  bands.drawRect(-w / 2 + 9, h / 2 - 69, w - 18, 32);
   bands.endFill();
   node.addChild(bands);
 
-  const name = label(def.name, 10, 0xf1f5f9, {
+  const name = label(def.name, 13, 0xf1f5f9, {
     wordWrap: true,
-    wordWrapWidth: w - 16,
+    wordWrapWidth: w - 22,
   });
-  name.position.set(0, h / 2 - 40);
+  name.position.set(0, h / 2 - 53);
   node.addChild(name);
 
   const kw = card.keywords.filter((k) => k !== "divineShield").join(" · ");
   if (kw) {
-    const t = label(kw, 8, 0xc7d2fe, { fontWeight: "600" });
-    t.position.set(0, h / 2 - 21);
+    const t = label(kw, 11, 0xc7d2fe, { fontWeight: "600" });
+    t.position.set(0, h / 2 - 28);
     node.addChild(t);
   }
 
@@ -252,8 +252,8 @@ function drawMinion(
   const baseAtk = def.attack ?? 0;
   const atkColor =
     card.attack > baseAtk ? BUFF_COLOR : card.attack < baseAtk ? DEBUFF_COLOR : 0xffffff;
-  const atk = statGem(-w / 2 + 14, h / 2 - 14, 0xd97706, "", 13);
-  atk.addChild(label(String(card.attack), 13, atkColor, { fontWeight: "700" }));
+  const atk = statGem(-w / 2 + 19, h / 2 - 19, 0xd97706, "", 17);
+  atk.addChild(label(String(card.attack), 17, atkColor, { fontWeight: "700" }));
   node.addChild(atk);
 
   const hpColor =
@@ -262,17 +262,17 @@ function drawMinion(
       : card.maxHealth > (def.health ?? 0)
         ? BUFF_COLOR
         : 0xffffff;
-  const hp = statGem(w / 2 - 14, h / 2 - 14, 0xdc2626, "", 13);
-  hp.addChild(label(String(card.health), 13, hpColor, { fontWeight: "700" }));
+  const hp = statGem(w / 2 - 19, h / 2 - 19, 0xdc2626, "", 17);
+  hp.addChild(label(String(card.health), 17, hpColor, { fontWeight: "700" }));
   node.addChild(hp);
 
   if (card.frozen) {
     const ice = new PIXI.Graphics();
-    ice.lineStyle({ width: 3, color: 0x7dd3fc, alpha: 0.9 });
-    ice.drawRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 8);
+    ice.lineStyle({ width: 4, color: 0x7dd3fc, alpha: 0.9 });
+    ice.drawRoundedRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 10);
     node.addChild(ice);
-    const t = label("❄", 16, 0xbae6fd);
-    t.position.set(0, -h / 2 + 40);
+    const t = label("❄", 22, 0xbae6fd);
+    t.position.set(0, -h / 2 + 53);
     node.addChild(t);
   }
 }
@@ -280,13 +280,13 @@ function drawMinion(
 function drawCardBack(node: PIXI.Container): void {
   const { w, h } = HAND;
   const g = new PIXI.Graphics();
-  g.lineStyle({ width: 3, color: 0x0b0f19 });
+  g.lineStyle({ width: 4, color: 0x0b0f19 });
   g.beginFill(0x4c2a85);
-  g.drawRoundedRect(-w / 2, -h / 2, w, h, 10);
+  g.drawRoundedRect(-w / 2, -h / 2, w, h, 12);
   g.endFill();
-  g.lineStyle({ width: 3, color: 0x8b5cf6, alpha: 0.7 });
-  g.drawCircle(0, 0, 28);
-  g.drawCircle(0, 0, 16);
+  g.lineStyle({ width: 4, color: 0x8b5cf6, alpha: 0.7 });
+  g.drawCircle(0, 0, 37);
+  g.drawCircle(0, 0, 21);
   g.endFill();
   node.addChild(g);
 }
@@ -379,12 +379,12 @@ export class Board {
     const decor = new PIXI.Graphics();
     decor.zIndex = 0;
     decor.beginFill(0x1d2a40);
-    decor.drawRoundedRect(VIEW_W / 2 - 440, Y.topBoard - 76, 880, 152, 16);
-    decor.drawRoundedRect(VIEW_W / 2 - 440, Y.bottomBoard - 76, 880, 152, 16);
+    decor.drawRoundedRect(VIEW_W / 2 - 570, Y.topBoard - 95, 1140, 190, 16);
+    decor.drawRoundedRect(VIEW_W / 2 - 570, Y.bottomBoard - 95, 1140, 190, 16);
     decor.endFill();
     decor.lineStyle({ width: 2, color: 0x2c3e5c });
-    decor.moveTo(VIEW_W / 2 - 420, (Y.topBoard + Y.bottomBoard) / 2);
-    decor.lineTo(VIEW_W / 2 + 420, (Y.topBoard + Y.bottomBoard) / 2);
+    decor.moveTo(VIEW_W / 2 - 550, (Y.topBoard + Y.bottomBoard) / 2);
+    decor.lineTo(VIEW_W / 2 + 550, (Y.topBoard + Y.bottomBoard) / 2);
     stage.addChild(decor);
 
     this.cardLayer.zIndex = 10;
@@ -576,7 +576,7 @@ export class Board {
 
       const handY = isBottom ? Y.bottomHand : Y.topHand;
       const n = pl.hand.length;
-      const spacing = Math.min(HAND.w + 6, 720 / Math.max(n, 1));
+      const spacing = Math.min(HAND.w + 6, 1000 / Math.max(n, 1));
       const x0 = VIEW_W / 2 - ((n - 1) * spacing) / 2;
       pl.hand.forEach((card, i) => {
         const def = getCardDef(card.defId);
@@ -596,7 +596,7 @@ export class Board {
 
       const boardY = isBottom ? Y.bottomBoard : Y.topBoard;
       const bn = pl.board.length;
-      const bSpacing = MINION.w + 14;
+      const bSpacing = MINION.w + 16;
       const bx0 = VIEW_W / 2 - ((bn - 1) * bSpacing) / 2;
       pl.board.forEach((card, i) => {
         slots.set(card.instanceId, {
@@ -617,13 +617,46 @@ export class Board {
     const node = this.heroNodes[p];
     clearChildren(node);
     const hero = state.players[p].hero;
+    const R = 48;
+
     const g = new PIXI.Graphics();
     g.lineStyle({ width: 3, color: 0x0b0f19 });
     g.beginFill(p === this.bottom ? 0x3b4a63 : 0x5b3a49);
-    g.drawCircle(0, 0, 48);
+    g.drawCircle(0, 0, R);
     g.endFill();
     node.addChild(g);
-    node.addChild(label(this.seatNames[p], 13, 0xf8fafc));
+
+    // Hero portrait clipped to the circle, when an image exists.
+    const portrait = heroArtTexture(state.players[p].heroId);
+    if (portrait) {
+      const sprite = new PIXI.Sprite(portrait);
+      const d = (R - 2) * 2;
+      sprite.width = d;
+      sprite.height = d;
+      sprite.position.set(-d / 2, -d / 2);
+      const mask = new PIXI.Graphics();
+      mask.beginFill(0xffffff);
+      mask.drawCircle(0, 0, R - 2);
+      mask.endFill();
+      sprite.mask = mask;
+      node.addChild(sprite, mask);
+      // Ring drawn back on top of the portrait edge.
+      const ring = new PIXI.Graphics();
+      ring.lineStyle({ width: 3, color: 0x0b0f19 });
+      ring.drawCircle(0, 0, R);
+      node.addChild(ring);
+    }
+
+    // Name on a readable band across the lower half of the circle.
+    const band = new PIXI.Graphics();
+    band.beginFill(0x0b0f19, portrait ? 0.72 : 0.35);
+    band.drawRect(-R + 6, 8, (R - 6) * 2, 22);
+    band.endFill();
+    node.addChild(band);
+    const name = label(this.seatNames[p], 12, 0xf8fafc);
+    name.position.set(0, 19);
+    node.addChild(name);
+
     node.addChild(statGem(34, 34, 0xdc2626, String(hero.health), 16));
     if (hero.armor > 0) node.addChild(statGem(-34, 34, 0x94a3b8, String(hero.armor), 14));
     if (state.phase === "gameover") node.alpha = state.winner === p ? 1 : 0.4;
@@ -781,7 +814,7 @@ export class Board {
       this.tweens.to(node.scale, { x: 1.16, y: 1.16 }, 120);
       // Lift bottom-hand cards so the zoom doesn't clip off-canvas.
       if (slot.zone === "hand") {
-        this.tweens.to(node, { y: slot.y - 16 }, 120);
+        this.tweens.to(node, { y: slot.y - 22 }, 120);
       }
       if (slot.zone === "board") this.showStatusPanel(slot.card, slot);
     } else {

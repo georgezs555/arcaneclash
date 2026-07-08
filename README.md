@@ -67,9 +67,10 @@ npm run build      # production build of the client
 - The circle next to your hero is your hero power.
 - **Card art** — drop an image named `<cardDefId>.png` (or jpg/webp) into
   `packages/client/src/art/` and it becomes that card's full-bleed
-  background (restart `npm run dev` after adding files). `ART_PROMPTS.md`
-  at the repo root has a ready-made anime-style prompt for every card,
-  matched to what the card does — feed them to any image generator. Cards
+  background (restart `npm run dev` after adding files).
+  `packages/client/src/CardDescriptions.txt` has a ready-made anime-style
+  prompt for every card, matched to what the card does — feed them to any
+  image generator. Cards
   without an image fall back to procedural pixel art
   (`src/game/pixelart.ts`). Frames are rarity-colored; buffs/debuffs pulse a
   green/red aura around the frame, and hovering a card zooms it and lists

@@ -1,0 +1,39 @@
+ArcaneClash — Hero Portrait Descriptions
+=========================================
+
+Save each generated image into packages/client/src/art/ using the EXACT
+filename shown (png, jpg, or webp all work). Restart "npm run dev" after
+adding files. Heroes without an image keep the plain colored circle.
+
+Format: SQUARE image (e.g. 1024x1024) with the face/bust centered — the
+portrait is clipped to a circle on the board, so edges get cut off.
+
+Append this style suffix to every prompt for a coherent set:
+anime style, vibrant cel-shaded digital illustration, dramatic fantasy
+lighting, painterly background, character bust portrait, no text,
+no watermark
+
+
+hero_merlin.png  (Mage)
+An elderly wise mage with a long white beard and deep blue star-embroidered
+robes, holding a softly glowing staff, kind but piercing eyes, bust portrait
+
+hero_morgana.png  (Warlock)
+A raven-haired enchantress in a dark purple gown, violet magic swirling in
+her raised palm, confident smirk, bust portrait
+
+hero_parcifal.png  (Paladin)
+A young idealistic knight in shining white-gold armor with a sunrise halo
+behind him, earnest humble expression, bust portrait
+
+hero_lancelot.png  (Warrior)
+A battle-hardened knight in heavy steel plate with a red plume, sword
+resting on his shoulder, resolute jaw, bust portrait
+
+hero_martin.png  (Priest)
+A gentle middle-aged friar in simple brown-and-white robes, warm smile,
+soft golden candlelight, bust portrait
+
+hero_robin.png  (Hunter)
+A hooded forest archer in green with a longbow drawn, freckled grin,
+dappled woodland light, bust portrait

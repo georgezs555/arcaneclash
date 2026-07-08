@@ -37,6 +37,23 @@ export function cardArtTexture(defId: string): PIXI.Texture {
   return texture;
 }
 
+/**
+ * Hero portrait, from an image named hero_<heroId>.(png|jpg|webp) in the art
+ * folder (e.g. hero_merlin.png). Returns null when no image exists — the
+ * board then keeps its plain colored circle.
+ */
+export function heroArtTexture(heroId: string): PIXI.Texture | null {
+  const key = `hero_${heroId}`;
+  const url = urls.get(key);
+  if (!url) return null;
+  let texture = cache.get(key);
+  if (!texture || texture.baseTexture.destroyed) {
+    texture = PIXI.Texture.from(url);
+    cache.set(key, texture);
+  }
+  return texture;
+}
+
 /** Call when the renderer that uploaded these textures is destroyed. */
 export function clearArtCache(): void {
   cache.clear();
