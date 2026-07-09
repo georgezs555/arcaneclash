@@ -19,6 +19,7 @@ import {
 } from "./game/decks";
 import { getSession, login, register, storeSession, type Session } from "./game/auth";
 import { isMuted, playSfx, preloadSfx, setMuted } from "./game/sfx";
+import { CardTile } from "./CardTile";
 
 type Screen =
   | { kind: "menu" }
@@ -128,7 +129,10 @@ export default function App() {
           }}
         />
         {syncError && <p className="sync-error">{syncError}</p>}
-        <MuteButton />
+        <div className="menu-utility">
+          <MuteButton />
+          <FullscreenButton />
+        </div>
       </div>
     );
   }
@@ -256,6 +260,30 @@ function AccountPanel({
   );
 }
 
+function FullscreenButton() {
+  const [fs, setFs] = useState(
+    typeof document !== "undefined" && !!document.fullscreenElement,
+  );
+  useEffect(() => {
+    const h = () => setFs(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", h);
+    return () => document.removeEventListener("fullscreenchange", h);
+  }, []);
+  const toggle = () => {
+    playSfx("ui_click");
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  };
+  return (
+    <button className="small fs-btn" onClick={toggle} title="Toggle fullscreen">
+      {fs ? "⛶ Exit fullscreen" : "⛶ Fullscreen"}
+    </button>
+  );
+}
+
 function MuteButton() {
   const [muted, setMutedState] = useState(isMuted());
   return (
@@ -321,24 +349,22 @@ function MulliganOverlay({
           const def = getCardDef(c.defId);
           const out = tossed.has(c.instanceId);
           return (
-            <div
+            <CardTile
               key={c.instanceId}
-              className={`mull-card ${out ? "tossed" : ""} ${def.type}`}
+              def={def}
+              extraClass={`mull-card ${out ? "tossed" : ""}`}
+              showClass={false}
               onClick={() => toggle(c.instanceId)}
-            >
-              <div className="cf-top">
-                <span className="cf-cost">{def.cost}</span>
-                <span className="cf-name">{def.name}</span>
-              </div>
-              {def.text && <div className="cf-text">{def.text}</div>}
-              {def.type === "minion" && (
-                <div className="cf-bottom">
-                  <span className="cf-atk">{def.attack}</span>
-                  <span className="cf-hp">{def.health}</span>
-                </div>
-              )}
-              {out && <div className="mull-x">REPLACE</div>}
-            </div>
+              footer={
+                def.type === "minion" ? (
+                  <div className="cf-bottom">
+                    <span className="cf-atk">{def.attack}</span>
+                    <span className="cf-hp">{def.health}</span>
+                  </div>
+                ) : undefined
+              }
+              stamp={out ? <div className="mull-x">REPLACE</div> : undefined}
+            />
           );
         })}
       </div>
@@ -493,7 +519,7 @@ function GameView({
   return (
     <div className="game-root">
       <div className="board-wrap">
-        <div ref={boardHost} />
+        <div className="board-host" ref={boardHost} />
         <div className="hud">
           <div className="hud-line">
             Turn {state.turn}
@@ -548,6 +574,7 @@ function GameView({
           ← Menu
         </button>
         <MuteButton />
+        <FullscreenButton />
         <h3>Battle log</h3>
         <ul className="log">
           {state.log.slice(-16).map((line, i) => (

@@ -14,5 +14,8 @@
     "preview": "npm --workspace @arcaneclash/client run preview",
     "test": "npm --workspace @arcaneclash/engine run test",
     "typecheck": "npm --workspace @arcaneclash/engine run typecheck && npm --workspace @arcaneclash/client run typecheck && npm --workspace @arcaneclash/server run typecheck"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

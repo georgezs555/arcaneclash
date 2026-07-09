@@ -16,6 +16,7 @@ import {
 } from "@arcaneclash/engine";
 import type { DeckData } from "./game/decks";
 import { playSfx } from "./game/sfx";
+import { CardTile } from "./CardTile";
 
 // ---------------------------------------------------------------------------
 // Deck list
@@ -295,35 +296,28 @@ function CardFace({
   disabled: boolean;
   onClick: () => void;
 }) {
-  const cls = def.cardClass ?? "neutral";
   return (
-    <div
-      className={`cardface rarity-${def.rarity ?? "common"} ${
-        disabled ? "disabled" : ""
-      } ${def.type}`}
+    <CardTile
+      def={def}
+      disabled={disabled}
       onClick={onClick}
-    >
-      <div className="cf-top">
-        <span className="cf-cost">{def.cost}</span>
-        <span className="cf-name">{def.name}</span>
-      </div>
-      {cls !== "neutral" && <div className="cf-class">{cls}</div>}
-      {def.text && <div className="cf-text">{def.text}</div>}
-      <div className="cf-bottom">
-        {def.type === "minion" ? (
-          <>
-            <span className="cf-atk">{def.attack}</span>
-            <span className="cf-copies">
+      footer={
+        <div className="cf-bottom">
+          {def.type === "minion" ? (
+            <>
+              <span className="cf-atk">{def.attack}</span>
+              <span className="cf-copies">
+                {used}/{limit}
+              </span>
+              <span className="cf-hp">{def.health}</span>
+            </>
+          ) : (
+            <span className="cf-copies center">
               {used}/{limit}
             </span>
-            <span className="cf-hp">{def.health}</span>
-          </>
-        ) : (
-          <span className="cf-copies center">
-            {used}/{limit}
-          </span>
-        )}
-      </div>
-    </div>
+          )}
+        </div>
+      }
+    />
   );
 }

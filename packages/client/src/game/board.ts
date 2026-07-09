@@ -17,6 +17,21 @@ import {
 import { Tweens, easeOutCubic, easeInOutQuad } from "./tween";
 import { playSfx, type SfxName } from "./sfx";
 import { cardArtTexture, clearArtCache, heroArtTexture } from "./cardart";
+import {
+  CARD,
+  CHROME,
+  roman,
+  themeOf,
+  tierOf,
+  THEMES,
+  type RarityTheme,
+} from "./theme";
+import {
+  backdropTexture,
+  cardWashTexture,
+  clearTextureCache,
+  haloTexture,
+} from "./textures";
 
 const HERO_POWER_SFX: Record<string, SfxName> = {
   hp_flame: "hero_power_flame",
@@ -27,35 +42,72 @@ const HERO_POWER_SFX: Record<string, SfxName> = {
   hp_shot: "hero_power_shot",
 };
 
-export const VIEW_W = 1280;
-export const VIEW_H = 1032;
+// Fallback size before the host has been measured (also the design reference).
+export const VIEW_W = 1600;
+export const VIEW_H = 1000;
 
-const HAND = { w: 158, h: 222 };
-const MINION = { w: 142, h: 182 };
+const HAND = CARD.hand; // 176 x 308 — strict Tarot ratio
+const MINION = CARD.minion; // 150 x 188 — compact board variant
+const HERO_R = 54;
 
-const Y = {
-  topHand: 30, // opponent card backs peek in from the top edge
-  topHero: 240,
-  topBoard: 385,
-  bottomBoard: 580,
-  bottomHero: 760,
-  bottomHand: 919,
-};
+interface Metrics {
+  topHand: number;
+  topHero: number;
+  topBoard: number;
+  bottomBoard: number;
+  bottomHero: number;
+  bottomHand: number;
+  divider: number;
+  rowW: number;
+  rowH: number;
+}
+
+/**
+ * Responsive vertical layout derived from the live canvas size, so the board
+ * fills the whole window at any resolution. Bands, top→bottom: opponent hand
+ * (peeking), opponent hero, opponent board, [divider], my board, my hero, my
+ * hand (fully visible at the bottom, above the hero — no overlap on the face).
+ */
+function computeMetrics(w: number, h: number): Metrics {
+  // Player hand sits fully visible at the bottom; player hero sits just above
+  // it (only its lower ~8px tucked behind the hand, face always visible).
+  const bottomHand = h - HAND.h / 2 - 14;
+  const handTop = bottomHand - HAND.h / 2;
+  // Hero fully above the hand so its health gem stays visible.
+  const bottomHero = handTop - HERO_R - 14;
+  const heroTop = bottomHero - HERO_R;
+  const bottomBoard = heroTop - 14 - MINION.h / 2;
+
+  const topHero = Math.max(h * 0.1, HERO_R + 30);
+  const topBoard = topHero + HERO_R + 14 + MINION.h / 2;
+
+  return {
+    topHand: -HAND.h * 0.34,
+    topHero,
+    topBoard,
+    bottomBoard,
+    bottomHero,
+    bottomHand,
+    divider: (topBoard + MINION.h / 2 + (bottomBoard - MINION.h / 2)) / 2,
+    rowW: Math.min(w - 76, 1560),
+    rowH: MINION.h + 22,
+  };
+}
 
 const BUFF_COLOR = 0x86efac; // light green
 const DEBUFF_COLOR = 0xfca5a5; // light red
 
-const RARITY_COLORS: Record<string, number> = {
-  basic: 0x8b93a3,
-  common: 0xd7dde7,
-  rare: 0x3b82f6,
-  epic: 0xa855f7,
-  legendary: 0xf59e0b,
-};
+// Flat, high-contrast typefaces. Serif for titles/numerals (the "elegant
+// readable serif" from the brief); a clean sans for tiny stat glyphs.
+const SERIF = "Georgia, 'Times New Roman', serif";
+const SANS = "'Segoe UI', system-ui, Arial, sans-serif";
 
-function rarityColor(def: CardDef): number {
-  return RARITY_COLORS[def.rarity ?? "common"] ?? RARITY_COLORS.common;
-}
+// Opponent card-back palette: regal indigo watercolor, bright-gold medallion.
+const BACK_THEME: RarityTheme = {
+  ...THEMES.rare,
+  line: 0xf3cd68,
+  lineSoft: 0xfff2ca,
+};
 
 type Pending =
   | { kind: "play"; instanceId: string }
@@ -83,7 +135,7 @@ function label(
   extra?: Partial<PIXI.ITextStyle>,
 ): PIXI.Text {
   const t = new PIXI.Text(str, {
-    fontFamily: "Segoe UI, Arial, sans-serif",
+    fontFamily: SANS,
     fontSize: size,
     fill,
     fontWeight: "600",
@@ -92,6 +144,16 @@ function label(
   });
   t.anchor.set(0.5);
   return t;
+}
+
+/** A serif title/numeral label — the elegant, high-contrast display face. */
+function serifLabel(
+  str: string,
+  size: number,
+  fill: number,
+  extra?: Partial<PIXI.ITextStyle>,
+): PIXI.Text {
+  return label(str, size, fill, { fontFamily: SERIF, fontWeight: "700", ...extra });
 }
 
 function clearChildren(c: PIXI.Container): void {
@@ -107,22 +169,77 @@ function clearChildren(c: PIXI.Container): void {
   }
 }
 
-function statGem(x: number, y: number, color: number, value: string, dim = 14): PIXI.Container {
+/** A metal-rimmed stat gem: solid disc, double keyline, serif value. */
+function gem(
+  x: number,
+  y: number,
+  color: number,
+  value: string,
+  r = 18,
+  rim = 0xe4cf9a,
+  textColor = 0xfff6e2,
+): PIXI.Container {
   const wrap = new PIXI.Container();
   const g = new PIXI.Graphics();
-  g.lineStyle({ width: 2, color: 0x0b0f19 });
   g.beginFill(color);
-  g.drawCircle(0, 0, dim);
+  g.lineStyle({ width: 3, color: 0x140f0a, alpha: 0.9 });
+  g.drawCircle(0, 0, r);
   g.endFill();
-  wrap.addChild(g, label(value, dim, 0xffffff, { fontWeight: "700" }));
+  g.lineStyle({ width: 1.5, color: rim, alpha: 0.95 });
+  g.drawCircle(0, 0, r - 2);
+  wrap.addChild(g, serifLabel(value, r + 1, textColor, { fontWeight: "700" }));
   wrap.position.set(x, y);
   return wrap;
 }
 
+// --- Flat stained-glass frame primitives -----------------------------------
+
+/** Trace a gothic (pointed) arch: flat bottom, curved shoulders, apex on top. */
+function archPath(
+  g: PIXI.Graphics,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+): void {
+  const cx = (left + right) / 2;
+  const spring = top + Math.min((right - left) * 0.5, (bottom - top) * 0.5);
+  g.moveTo(left, bottom);
+  g.lineTo(left, spring);
+  g.quadraticCurveTo(left, top, cx, top);
+  g.quadraticCurveTo(right, top, right, spring);
+  g.lineTo(right, bottom);
+  g.lineTo(left, bottom);
+}
+
+/** A rounded-rect mask sized to a card, for clipping the watercolor sprite. */
+function roundedMask(w: number, h: number): PIXI.Graphics {
+  const m = new PIXI.Graphics();
+  m.beginFill(0xffffff);
+  m.drawRoundedRect(-w / 2, -h / 2, w, h, CARD.radius);
+  m.endFill();
+  return m;
+}
+
+/** The gilded double frame (Art Nouveau metal) with jewelled corner studs. */
+function metalFrame(node: PIXI.Container, w: number, h: number, theme: RarityTheme): void {
+  const f = new PIXI.Graphics();
+  f.lineStyle({ width: 3, color: theme.line, alpha: 1 });
+  f.drawRoundedRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6, CARD.radius - 2);
+  f.lineStyle({ width: 1, color: theme.lineSoft, alpha: 0.8 });
+  f.drawRoundedRect(-w / 2 + 6.5, -h / 2 + 6.5, w - 13, h - 13, CARD.radius - 4);
+  f.lineStyle();
+  f.beginFill(theme.lineSoft, 0.95);
+  for (const sx of [-1, 1])
+    for (const sy of [-1, 1]) f.drawCircle(sx * (w / 2 - 9), sy * (h / 2 - 9), 2.6);
+  f.endFill();
+  node.addChild(f);
+}
+
 /**
- * Full-bleed pixel art with a frame around the whole card: an outer status
- * border (selected/actable/taunt) and an inner rarity-colored frame with
- * pixel corner accents.
+ * The painterly card body: a soft watercolor wash (canvas texture) clipped to
+ * the card, a luminous gothic-arch art window, and a gilded frame. Callers add
+ * the cost gem, title plate, rules panel and stat gems on top.
  */
 function cardChrome(
   node: PIXI.Container,
@@ -132,36 +249,106 @@ function cardChrome(
   h: number,
   statusBorder: number,
   statusWidth: number,
+  artBottomY: number,
 ): void {
-  const art = new PIXI.Sprite(cardArtTexture(defId));
-  art.position.set(-w / 2, -h / 2);
-  art.width = w;
-  art.height = h;
-  node.addChild(art);
+  const theme = themeOf(def);
 
-  const frame = new PIXI.Graphics();
-  // Outer status border, hugging the card edge.
-  frame.lineStyle({ width: statusWidth, color: statusBorder });
-  frame.drawRect(
-    -w / 2 + statusWidth / 2,
-    -h / 2 + statusWidth / 2,
-    w - statusWidth,
-    h - statusWidth,
+  // Watercolor wash, clipped to the rounded card.
+  const bg = new PIXI.Sprite(cardWashTexture(tierOf(def), theme.base, theme.wash));
+  bg.width = w;
+  bg.height = h;
+  bg.position.set(-w / 2, -h / 2);
+  const mask = roundedMask(w, h);
+  bg.mask = mask;
+  node.addChild(bg, mask);
+
+  // Gothic-arch art window.
+  const inset = 14;
+  const ax = -w / 2 + inset;
+  const aRight = w / 2 - inset;
+  const ay = -h / 2 + inset;
+  const acx = (ax + aRight) / 2;
+  const acy = (ay + artBottomY) / 2;
+
+  // Warm halo behind the art for luminosity.
+  const halo = new PIXI.Sprite(haloTexture(theme.hover));
+  halo.anchor.set(0.5);
+  halo.width = (aRight - ax) * 1.25;
+  halo.height = (artBottomY - ay) * 1.25;
+  halo.position.set(acx, acy);
+  halo.alpha = 0.45;
+  node.addChild(halo);
+
+  const artMask = new PIXI.Graphics();
+  artMask.beginFill(0xffffff);
+  archPath(artMask, ax, aRight, ay, artBottomY);
+  artMask.endFill();
+  const art = new PIXI.Sprite(cardArtTexture(defId));
+  art.position.set(ax, ay);
+  art.width = aRight - ax;
+  art.height = artBottomY - ay;
+  art.mask = artMask;
+  node.addChild(art, artMask);
+
+  // Gilded arch keyline.
+  const arch = new PIXI.Graphics();
+  arch.lineStyle({ width: 2.5, color: theme.line, alpha: 1 });
+  archPath(arch, ax, aRight, ay, artBottomY);
+  arch.lineStyle({ width: 1, color: theme.lineSoft, alpha: 0.7 });
+  archPath(arch, ax + 2, aRight - 2, ay + 2, artBottomY);
+  node.addChild(arch);
+
+  metalFrame(node, w, h, theme);
+
+  // Status ring hugging the card edge (selected / actable / taunt).
+  if (statusWidth > 0) {
+    const ring = new PIXI.Graphics();
+    ring.lineStyle({ width: statusWidth, color: statusBorder, alpha: 1 });
+    ring.drawRoundedRect(
+      -w / 2 + statusWidth / 2,
+      -h / 2 + statusWidth / 2,
+      w - statusWidth,
+      h - statusWidth,
+      CARD.radius,
+    );
+    node.addChild(ring);
+  }
+}
+
+/** A slim gilded name plate with a serif title. */
+function titlePlate(
+  name: string,
+  w: number,
+  cy: number,
+  theme: RarityTheme,
+  fontSize: number,
+): PIXI.Container {
+  const wrap = new PIXI.Container();
+  const rw = w - 14;
+  const rh = fontSize + 12;
+  const g = new PIXI.Graphics();
+  g.beginFill(0x120d09, 0.74);
+  g.drawRoundedRect(-rw / 2, -rh / 2, rw, rh, rh / 2);
+  g.endFill();
+  g.lineStyle({ width: 1.5, color: theme.line, alpha: 0.95 });
+  g.drawRoundedRect(-rw / 2, -rh / 2, rw, rh, rh / 2);
+  wrap.addChild(
+    g,
+    serifLabel(name, fontSize, theme.ink, { wordWrap: true, wordWrapWidth: rw - 18 }),
   );
-  // Inner rarity frame.
-  const inset = statusWidth + 2;
-  frame.lineStyle({ width: 2, color: rarityColor(def), alpha: 0.95 });
-  frame.drawRect(-w / 2 + inset, -h / 2 + inset, w - inset * 2, h - inset * 2);
-  // Pixel corner accents.
-  frame.lineStyle();
-  frame.beginFill(rarityColor(def));
-  const c = 5;
-  frame.drawRect(-w / 2 + inset - 1, -h / 2 + inset - 1, c, c);
-  frame.drawRect(w / 2 - inset - c + 1, -h / 2 + inset - 1, c, c);
-  frame.drawRect(-w / 2 + inset - 1, h / 2 - inset - c + 1, c, c);
-  frame.drawRect(w / 2 - inset - c + 1, h / 2 - inset - c + 1, c, c);
-  frame.endFill();
-  node.addChild(frame);
+  wrap.position.set(0, cy);
+  return wrap;
+}
+
+/** A dark, legible rules panel bordered in metal. */
+function rulesPanel(w: number, top: number, bottom: number, theme: RarityTheme): PIXI.Graphics {
+  const g = new PIXI.Graphics();
+  g.beginFill(0x0f0b08, 0.82);
+  g.drawRoundedRect(-w / 2 + 11, top, w - 22, bottom - top, 7);
+  g.endFill();
+  g.lineStyle({ width: 1, color: theme.line, alpha: 0.55 });
+  g.drawRoundedRect(-w / 2 + 11, top, w - 22, bottom - top, 7);
+  return g;
 }
 
 function drawHandCard(
@@ -172,39 +359,49 @@ function drawHandCard(
   selected: boolean,
 ): void {
   const { w, h } = HAND;
-  const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : 0x11151f;
+  const theme = themeOf(def);
+  const [border, bw] = selected
+    ? [0xffe08a, 5]
+    : canAct
+      ? [0x86efac, 4]
+      : [0, 0];
 
-  cardChrome(node, card.defId, def, w, h, border, 5);
+  const plateCY = -h / 2 + h * 0.6;
+  const artBottomY = plateCY - 22;
+  cardChrome(node, card.defId, def, w, h, border, bw, artBottomY);
 
-  // Readability bands over the art: name strip + rules text box.
-  const bands = new PIXI.Graphics();
-  bands.beginFill(0x0b0f19, 0.68);
-  bands.drawRect(-w / 2 + 9, -h / 2 + 83, w - 18, 34);
-  if (def.text) bands.drawRect(-w / 2 + 9, h / 2 - 99, w - 18, 64);
-  bands.endFill();
-  node.addChild(bands);
+  // Cost gem, top-left, overlapping the frame.
+  node.addChild(gem(-w / 2 + 21, -h / 2 + 21, theme.accent, roman(def.cost), 19, theme.lineSoft));
 
-  const name = label(def.name, 15, 0xffffff, {
-    wordWrap: true,
-    wordWrapWidth: w - 24,
-  });
-  name.position.set(0, -h / 2 + 100);
-  node.addChild(name);
+  // Name plate.
+  node.addChild(titlePlate(def.name, w, plateCY, theme, 15));
+
+  // Rules panel with legible serif text.
+  const boxTop = plateCY + (15 + 12) / 2 + 3;
+  const boxBottom = h / 2 - 12;
+  node.addChild(rulesPanel(w, boxTop, boxBottom, theme));
 
   if (def.text) {
-    const text = label(def.text, 12, 0xe2e8f0, {
+    const text = label(def.text, 12.5, 0xf1ead9, {
+      fontFamily: SERIF,
       wordWrap: true,
-      wordWrapWidth: w - 30,
+      wordWrapWidth: w - 42,
       fontWeight: "400",
     });
-    text.position.set(0, h / 2 - 67);
+    text.position.set(0, (boxTop + boxBottom) / 2);
     node.addChild(text);
+  } else if (def.type === "minion") {
+    const kw = def.keywords?.join(" · ");
+    if (kw) {
+      const t = serifLabel(kw, 13, theme.lineSoft, { fontWeight: "600" });
+      t.position.set(0, (boxTop + boxBottom) / 2);
+      node.addChild(t);
+    }
   }
 
-  node.addChild(statGem(-w / 2 + 21, -h / 2 + 21, 0x2563eb, String(def.cost), 19));
   if (def.type === "minion") {
-    node.addChild(statGem(-w / 2 + 20, h / 2 - 20, 0xd97706, String(card.attack), 19));
-    node.addChild(statGem(w / 2 - 20, h / 2 - 20, 0xdc2626, String(card.health), 19));
+    node.addChild(gem(-w / 2 + 21, h / 2 - 21, CHROME.atkGem, String(card.attack), 20));
+    node.addChild(gem(w / 2 - 21, h / 2 - 21, CHROME.hpGem, String(card.health), 20));
   }
 }
 
@@ -216,79 +413,93 @@ function drawMinion(
   selected: boolean,
 ): void {
   const { w, h } = MINION;
-  if (card.divineShield) {
-    const glow = new PIXI.Graphics();
-    glow.lineStyle({ width: 5, color: 0xfde047, alpha: 0.9 });
-    glow.drawRoundedRect(-w / 2 - 5, -h / 2 - 5, w + 10, h + 10, 14);
-    node.addChild(glow);
-  }
+  const theme = themeOf(def);
   const taunt = card.keywords.includes("taunt");
-  const border = selected ? 0xfacc15 : canAct ? 0x4ade80 : taunt ? 0x94a3b8 : 0x11151f;
+  const [border, bw] = selected
+    ? [0xffe08a, 5]
+    : canAct
+      ? [0x86efac, 4]
+      : taunt
+        ? [0xcbb389, 5]
+        : [0, 0];
 
-  cardChrome(node, card.defId, def, w, h, border, taunt ? 6 : 5);
+  const plateCY = -h / 2 + h * 0.85;
+  const artBottomY = plateCY - 14;
+  cardChrome(node, card.defId, def, w, h, border, bw, artBottomY);
 
-  // Name strip over the art, low enough to leave the creature visible.
-  const bands = new PIXI.Graphics();
-  bands.beginFill(0x0b0f19, 0.68);
-  bands.drawRect(-w / 2 + 9, h / 2 - 69, w - 18, 32);
-  bands.endFill();
-  node.addChild(bands);
-
-  const name = label(def.name, 13, 0xf1f5f9, {
-    wordWrap: true,
-    wordWrapWidth: w - 22,
-  });
-  name.position.set(0, h / 2 - 53);
-  node.addChild(name);
+  node.addChild(titlePlate(def.name, w, plateCY, theme, 12.5));
 
   const kw = card.keywords.filter((k) => k !== "divineShield").join(" · ");
   if (kw) {
-    const t = label(kw, 11, 0xc7d2fe, { fontWeight: "600" });
-    t.position.set(0, h / 2 - 28);
+    const t = serifLabel(kw, 10.5, theme.lineSoft, { fontWeight: "600" });
+    t.position.set(0, plateCY + 17);
     node.addChild(t);
+  }
+
+  // Divine shield: a bright gold keyline just inside the frame.
+  if (card.divineShield) {
+    const ds = new PIXI.Graphics();
+    ds.lineStyle({ width: 3, color: 0xffe08a, alpha: 1 });
+    ds.drawRoundedRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8, CARD.radius - 2);
+    node.addChild(ds);
   }
 
   // Stat gems tint when modified from the printed values.
   const baseAtk = def.attack ?? 0;
   const atkColor =
-    card.attack > baseAtk ? BUFF_COLOR : card.attack < baseAtk ? DEBUFF_COLOR : 0xffffff;
-  const atk = statGem(-w / 2 + 19, h / 2 - 19, 0xd97706, "", 17);
-  atk.addChild(label(String(card.attack), 17, atkColor, { fontWeight: "700" }));
-  node.addChild(atk);
+    card.attack > baseAtk ? BUFF_COLOR : card.attack < baseAtk ? DEBUFF_COLOR : 0xfff6e2;
+  node.addChild(gem(-w / 2 + 19, h / 2 - 19, CHROME.atkGem, String(card.attack), 18, 0xe4cf9a, atkColor));
 
   const hpColor =
     card.health < card.maxHealth
       ? DEBUFF_COLOR
       : card.maxHealth > (def.health ?? 0)
         ? BUFF_COLOR
-        : 0xffffff;
-  const hp = statGem(w / 2 - 19, h / 2 - 19, 0xdc2626, "", 17);
-  hp.addChild(label(String(card.health), 17, hpColor, { fontWeight: "700" }));
-  node.addChild(hp);
+        : 0xfff6e2;
+  node.addChild(gem(w / 2 - 19, h / 2 - 19, CHROME.hpGem, String(card.health), 18, 0xe4cf9a, hpColor));
 
+  // Frozen: a pale-blue wash over the card + a rune.
   if (card.frozen) {
     const ice = new PIXI.Graphics();
-    ice.lineStyle({ width: 4, color: 0x7dd3fc, alpha: 0.9 });
-    ice.drawRoundedRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 10);
+    ice.beginFill(0x7dd3fc, 0.28);
+    ice.drawRoundedRect(-w / 2, -h / 2, w, h, CARD.radius);
+    ice.endFill();
+    ice.lineStyle({ width: 2, color: 0xbae6fd, alpha: 0.95 });
+    ice.drawRoundedRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6, CARD.radius - 2);
     node.addChild(ice);
-    const t = label("❄", 22, 0xbae6fd);
-    t.position.set(0, -h / 2 + 53);
+    const t = label("❄", 24, 0xe0f2fe);
+    t.position.set(0, -h / 2 + 30);
     node.addChild(t);
   }
 }
 
 function drawCardBack(node: PIXI.Container): void {
   const { w, h } = HAND;
-  const g = new PIXI.Graphics();
-  g.lineStyle({ width: 4, color: 0x0b0f19 });
-  g.beginFill(0x4c2a85);
-  g.drawRoundedRect(-w / 2, -h / 2, w, h, 12);
-  g.endFill();
-  g.lineStyle({ width: 4, color: 0x8b5cf6, alpha: 0.7 });
-  g.drawCircle(0, 0, 37);
-  g.drawCircle(0, 0, 21);
-  g.endFill();
-  node.addChild(g);
+  const theme = BACK_THEME;
+
+  const bg = new PIXI.Sprite(cardWashTexture("back", theme.base, theme.wash));
+  bg.width = w;
+  bg.height = h;
+  bg.position.set(-w / 2, -h / 2);
+  const mask = roundedMask(w, h);
+  bg.mask = mask;
+  node.addChild(bg, mask);
+
+  // Gilded rose-window medallion.
+  const rose = new PIXI.Graphics();
+  rose.lineStyle({ width: 2.5, color: theme.line, alpha: 0.95 });
+  rose.drawCircle(0, 0, 54);
+  rose.drawCircle(0, 0, 32);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    rose.moveTo(Math.cos(a) * 32, Math.sin(a) * 32);
+    rose.lineTo(Math.cos(a) * 54, Math.sin(a) * 54);
+  }
+  rose.lineStyle({ width: 1.5, color: theme.lineSoft, alpha: 0.85 });
+  rose.drawCircle(0, 0, 14);
+  node.addChild(rose);
+
+  metalFrame(node, w, h, theme);
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +558,11 @@ export class Board {
   private bottom: PlayerIndex = 0;
   private submit: (a: Action) => string | null;
   private seatNames: [string, string];
+  private w = VIEW_W;
+  private h = VIEW_H;
+  private m: Metrics = computeMetrics(VIEW_W, VIEW_H);
+  private envNode: PIXI.Container | null = null;
+  private resizeObserver: ResizeObserver;
 
   constructor(
     parent: HTMLElement,
@@ -355,17 +571,23 @@ export class Board {
   ) {
     this.submit = submit;
     this.seatNames = seatNames;
+    this.w = Math.max(640, Math.round(parent.clientWidth) || VIEW_W);
+    this.h = Math.max(480, Math.round(parent.clientHeight) || VIEW_H);
+    this.m = computeMetrics(this.w, this.h);
     this.app = new PIXI.Application({
-      width: VIEW_W,
-      height: VIEW_H,
-      backgroundColor: 0x151d2b,
+      width: this.w,
+      height: this.h,
+      backgroundColor: CHROME.bgBase,
       antialias: true,
+      autoDensity: true,
+      resolution: window.devicePixelRatio || 1,
     });
     const view = this.app.view as HTMLCanvasElement;
+    // Fill the host 1:1 — the renderer itself is resized to the host, so the
+    // board fills the whole window at any resolution (no letterbox bars).
     view.style.width = "100%";
-    view.style.height = "auto";
+    view.style.height = "100%";
     view.style.display = "block";
-    view.style.borderRadius = "12px";
     view.addEventListener("contextmenu", (e) => e.preventDefault());
     parent.appendChild(view);
 
@@ -373,19 +595,11 @@ export class Board {
 
     const stage = this.app.stage;
     stage.eventMode = "static";
-    stage.hitArea = new PIXI.Rectangle(0, 0, VIEW_W, VIEW_H);
+    stage.hitArea = new PIXI.Rectangle(0, 0, this.w, this.h);
     stage.sortableChildren = true;
 
-    const decor = new PIXI.Graphics();
-    decor.zIndex = 0;
-    decor.beginFill(0x1d2a40);
-    decor.drawRoundedRect(VIEW_W / 2 - 570, Y.topBoard - 95, 1140, 190, 16);
-    decor.drawRoundedRect(VIEW_W / 2 - 570, Y.bottomBoard - 95, 1140, 190, 16);
-    decor.endFill();
-    decor.lineStyle({ width: 2, color: 0x2c3e5c });
-    decor.moveTo(VIEW_W / 2 - 550, (Y.topBoard + Y.bottomBoard) / 2);
-    decor.lineTo(VIEW_W / 2 + 550, (Y.topBoard + Y.bottomBoard) / 2);
-    stage.addChild(decor);
+    this.envNode = this.buildEnvironment();
+    stage.addChild(this.envNode);
 
     this.cardLayer.zIndex = 10;
     this.cardLayer.sortableChildren = true;
@@ -428,12 +642,85 @@ export class Board {
     });
     stage.on("pointertap", () => this.clearPending());
     stage.on("rightdown", () => this.clearPending());
+
+    // Keep the renderer sized to its host so the board always fills the window.
+    this.resizeObserver = new ResizeObserver(() => {
+      const cw = Math.max(640, Math.round(parent.clientWidth));
+      const ch = Math.max(480, Math.round(parent.clientHeight));
+      if (cw !== this.w || ch !== this.h) this.resize(cw, ch);
+    });
+    this.resizeObserver.observe(parent);
+  }
+
+  /** Re-fit the renderer and re-lay-out for a new host size. */
+  private resize(w: number, h: number): void {
+    this.w = w;
+    this.h = h;
+    this.m = computeMetrics(w, h);
+    this.app.renderer.resize(w, h);
+    this.app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h);
+    if (this.envNode) {
+      this.envNode.destroy({ children: true });
+      this.envNode = this.buildEnvironment();
+      this.app.stage.addChild(this.envNode);
+    }
+    if (this.state) this.applyState(null, this.state);
+  }
+
+  /** Dreamy watercolor backdrop with two luminous board rows + gilded divider. */
+  private buildEnvironment(): PIXI.Container {
+    const c = new PIXI.Container();
+    c.zIndex = 0;
+    c.eventMode = "none";
+    const midX = this.w / 2;
+    const { rowW, rowH } = this.m;
+
+    // Full-bleed painterly backdrop.
+    const back = new PIXI.Sprite(
+      backdropTexture(this.w, this.h, CHROME.bgBase, CHROME.bgWash),
+    );
+    back.width = this.w;
+    back.height = this.h;
+    c.addChild(back);
+
+    const g = new PIXI.Graphics();
+    // Two board rows: soft, luminous, gilded rims.
+    for (const cy of [this.m.topBoard, this.m.bottomBoard]) {
+      g.beginFill(CHROME.felt, 0.5);
+      g.drawRoundedRect(midX - rowW / 2, cy - rowH / 2, rowW, rowH, 22);
+      g.endFill();
+      g.lineStyle({ width: 2, color: CHROME.rail, alpha: 0.55 });
+      g.drawRoundedRect(midX - rowW / 2, cy - rowH / 2, rowW, rowH, 22);
+      g.lineStyle({ width: 1, color: CHROME.railSoft, alpha: 0.3 });
+      g.drawRoundedRect(midX - rowW / 2 + 4, cy - rowH / 2 + 4, rowW - 8, rowH - 8, 20);
+      g.lineStyle();
+    }
+
+    // Center divider with a gilded diamond ornament between the two rows.
+    const dy = this.m.divider;
+    g.lineStyle({ width: 1.5, color: CHROME.rail, alpha: 0.7 });
+    g.moveTo(midX - rowW / 2 + 40, dy);
+    g.lineTo(midX - 78, dy);
+    g.moveTo(midX + 78, dy);
+    g.lineTo(midX + rowW / 2 - 40, dy);
+    g.lineStyle({ width: 2, color: CHROME.railSoft, alpha: 0.95 });
+    g.beginFill(CHROME.rail, 0.5);
+    g.moveTo(midX, dy - 28);
+    g.lineTo(midX + 48, dy);
+    g.lineTo(midX, dy + 28);
+    g.lineTo(midX - 48, dy);
+    g.lineTo(midX, dy - 28);
+    g.endFill();
+    c.addChild(g);
+    return c;
   }
 
   destroy(): void {
+    this.resizeObserver.disconnect();
     this.app.destroy(true, { children: true, texture: true, baseTexture: true });
     // The destroy above tears down the shared art textures with the stage.
     clearArtCache();
+    clearTextureCache();
   }
 
   // -------------------------------------------------------------------------
@@ -539,7 +826,7 @@ export class Board {
         this.nodes.set(id, node);
         this.cardLayer.addChild(node);
         if (slot.zone === "hand") {
-          node.position.set(VIEW_W - 50, slot.y); // drawn from the deck
+          node.position.set(this.w - 50, slot.y); // drawn from the deck
         } else {
           node.position.set(slot.x, slot.y); // summoned token: pop in
           node.scale.set(0.2);
@@ -557,11 +844,11 @@ export class Board {
 
     for (const p of [0, 1] as const) {
       const isBottom = p === this.bottom;
-      const heroY = isBottom ? Y.bottomHero : Y.topHero;
+      const heroY = isBottom ? this.m.bottomHero : this.m.topHero;
       this.redrawHero(p, state);
       this.redrawHeroPower(p, state);
-      this.tweens.to(this.heroNodes[p], { x: VIEW_W / 2, y: heroY }, 260);
-      this.tweens.to(this.powerNodes[p], { x: VIEW_W / 2 + 116, y: heroY }, 260);
+      this.tweens.to(this.heroNodes[p], { x: this.w / 2, y: heroY }, 260);
+      this.tweens.to(this.powerNodes[p], { x: this.w / 2 + 132, y: heroY }, 260);
     }
 
     if (prev) this.spawnCombatFloats(prev, state, slots);
@@ -574,10 +861,10 @@ export class Board {
       const isBottom = p === this.bottom;
       const myTurn = state.active === p && state.phase === "playing";
 
-      const handY = isBottom ? Y.bottomHand : Y.topHand;
+      const handY = isBottom ? this.m.bottomHand : this.m.topHand;
       const n = pl.hand.length;
-      const spacing = Math.min(HAND.w + 6, 1000 / Math.max(n, 1));
-      const x0 = VIEW_W / 2 - ((n - 1) * spacing) / 2;
+      const spacing = Math.min(HAND.w + 6, (this.w * 0.9) / Math.max(n, 1));
+      const x0 = this.w / 2 - ((n - 1) * spacing) / 2;
       pl.hand.forEach((card, i) => {
         const def = getCardDef(card.defId);
         const affordable =
@@ -594,10 +881,10 @@ export class Board {
         });
       });
 
-      const boardY = isBottom ? Y.bottomBoard : Y.topBoard;
+      const boardY = isBottom ? this.m.bottomBoard : this.m.topBoard;
       const bn = pl.board.length;
       const bSpacing = MINION.w + 16;
-      const bx0 = VIEW_W / 2 - ((bn - 1) * bSpacing) / 2;
+      const bx0 = this.w / 2 - ((bn - 1) * bSpacing) / 2;
       pl.board.forEach((card, i) => {
         slots.set(card.instanceId, {
           card,
@@ -617,11 +904,21 @@ export class Board {
     const node = this.heroNodes[p];
     clearChildren(node);
     const hero = state.players[p].hero;
-    const R = 48;
+    const R = 56;
+    const active = state.active === p && state.phase === "playing";
+
+    // Soft halo when it's this hero's turn.
+    if (active) {
+      const glow = new PIXI.Sprite(haloTexture(CHROME.railSoft));
+      glow.anchor.set(0.5);
+      glow.width = glow.height = (R + 22) * 2;
+      glow.alpha = 0.5;
+      node.addChild(glow);
+    }
 
     const g = new PIXI.Graphics();
-    g.lineStyle({ width: 3, color: 0x0b0f19 });
-    g.beginFill(p === this.bottom ? 0x3b4a63 : 0x5b3a49);
+    g.lineStyle({ width: 4, color: 0x140f0a });
+    g.beginFill(p === this.bottom ? 0x233150 : 0x3a2436);
     g.drawCircle(0, 0, R);
     g.endFill();
     node.addChild(g);
@@ -640,25 +937,34 @@ export class Board {
       mask.endFill();
       sprite.mask = mask;
       node.addChild(sprite, mask);
-      // Ring drawn back on top of the portrait edge.
-      const ring = new PIXI.Graphics();
-      ring.lineStyle({ width: 3, color: 0x0b0f19 });
-      ring.drawCircle(0, 0, R);
-      node.addChild(ring);
     }
 
-    // Name on a readable band across the lower half of the circle.
-    const band = new PIXI.Graphics();
-    band.beginFill(0x0b0f19, portrait ? 0.72 : 0.35);
-    band.drawRect(-R + 6, 8, (R - 6) * 2, 22);
-    band.endFill();
-    node.addChild(band);
-    const name = label(this.seatNames[p], 12, 0xf8fafc);
-    name.position.set(0, 19);
+    // Gilded double ring around the portrait.
+    const ring = new PIXI.Graphics();
+    ring.lineStyle({ width: 4, color: active ? CHROME.railSoft : CHROME.rail, alpha: 1 });
+    ring.drawCircle(0, 0, R);
+    ring.lineStyle({ width: 1.5, color: 0x140f0a, alpha: 0.7 });
+    ring.drawCircle(0, 0, R - 3);
+    node.addChild(ring);
+
+    // Health / armor gems on the ring.
+    node.addChild(gem(R - 8, R - 8, CHROME.hpGem, String(hero.health), 18));
+    if (hero.armor > 0) node.addChild(gem(-(R - 8), R - 8, 0x8b93a3, String(hero.armor), 15));
+
+    // Name plate below the portrait (kept clear of the gems).
+    const nm = this.seatNames[p];
+    const plateW = Math.max(84, nm.length * 8 + 20);
+    const plate = new PIXI.Graphics();
+    plate.beginFill(0x120d09, 0.82);
+    plate.drawRoundedRect(-plateW / 2, R + 4, plateW, 22, 11);
+    plate.endFill();
+    plate.lineStyle({ width: 1.5, color: CHROME.rail, alpha: 0.9 });
+    plate.drawRoundedRect(-plateW / 2, R + 4, plateW, 22, 11);
+    node.addChild(plate);
+    const name = serifLabel(nm, 13, CHROME.ink, { fontWeight: "600" });
+    name.position.set(0, R + 15);
     node.addChild(name);
 
-    node.addChild(statGem(34, 34, 0xdc2626, String(hero.health), 16));
-    if (hero.armor > 0) node.addChild(statGem(-34, 34, 0x94a3b8, String(hero.armor), 14));
     if (state.phase === "gameover") node.alpha = state.winner === p ? 1 : 0.4;
   }
 
@@ -674,14 +980,16 @@ export class Board {
       !pl.heroPowerUsed &&
       hp.cost <= pl.mana;
     const g = new PIXI.Graphics();
-    g.lineStyle({ width: 3, color: usable ? 0x4ade80 : 0x0b0f19 });
-    g.beginFill(pl.heroPowerUsed ? 0x3f3f46 : 0x6d28d9);
-    g.drawCircle(0, 0, 27);
+    g.beginFill(pl.heroPowerUsed ? 0x2b2740 : 0x4a3a72);
+    g.lineStyle({ width: 4, color: usable ? 0x86efac : 0x140f0a, alpha: 0.95 });
+    g.drawCircle(0, 0, 30);
     g.endFill();
+    g.lineStyle({ width: 1.5, color: CHROME.railSoft, alpha: 0.8 });
+    g.drawCircle(0, 0, 27);
     node.addChild(g);
     const initials = hp.name.split(" ").map((w) => w[0] ?? "").join("");
-    node.addChild(label(initials, 15, 0xffffff, { fontWeight: "700" }));
-    node.addChild(statGem(0, -27, 0x2563eb, String(hp.cost), 10));
+    node.addChild(serifLabel(initials, 16, 0xf3eee0, { fontWeight: "700" }));
+    node.addChild(gem(0, -30, CHROME.costGem, roman(hp.cost), 12));
     node.alpha = pl.heroPowerUsed ? 0.55 : 1;
   }
 
@@ -857,7 +1165,7 @@ export class Board {
     // Right of the card, or left when too close to the edge.
     const gap = MINION.w / 2 + 14;
     const px =
-      slot.x + gap + width > VIEW_W - 8 ? slot.x - gap - width : slot.x + gap;
+      slot.x + gap + width > this.w - 8 ? slot.x - gap - width : slot.x + gap;
     panel.position.set(px, slot.y - height / 2);
     panel.eventMode = "none";
     this.fxLayer.addChild(panel);
@@ -953,8 +1261,8 @@ export class Board {
       if (hAfter !== hBefore) {
         if (hAfter < hBefore) sounds.add("hero_damage");
         else sounds.add("heal");
-        const heroY = p === this.bottom ? Y.bottomHero : Y.topHero;
-        this.floatText(hAfter - hBefore, VIEW_W / 2, heroY);
+        const heroY = p === this.bottom ? this.m.bottomHero : this.m.topHero;
+        this.floatText(hAfter - hBefore, this.w / 2, heroY);
       }
     }
 
@@ -983,9 +1291,9 @@ export class Board {
   private toast(msg: string): void {
     playSfx("invalid_action");
     const t = label(msg, 21, 0xfecaca, { fontWeight: "700" });
-    t.position.set(VIEW_W / 2, VIEW_H / 2 - 30);
+    t.position.set(this.w / 2, this.h / 2 - 30);
     this.fxLayer.addChild(t);
-    this.tweens.to(t, { y: VIEW_H / 2 - 90, alpha: 0 }, 1300, easeOutCubic, () => {
+    this.tweens.to(t, { y: this.h / 2 - 90, alpha: 0 }, 1300, easeOutCubic, () => {
       t.destroy();
     });
   }
